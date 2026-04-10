@@ -1,0 +1,27 @@
+title: Ranjith Kannan
+description: Writing about software, systems, and ideas.
+url: "https://ranjithkannank.github.io"
+baseurl: ""
+author:
+  name: Ranjith Kannan
+  email: ""
+
+permalink: /:year/:month/:day/:title/
+
+markdown: kramdown
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
+
+feed:
+  path: feed.xml
+
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - README.md
+  - .gitignore
