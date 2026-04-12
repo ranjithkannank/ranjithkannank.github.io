@@ -26,7 +26,7 @@ Applied to AI code generation: if you create agents with competing objectives in
 | Worker | Make tests pass | Knows Reviewer will audit every line |
 | Reviewer | Find violations | Has no fix burden, only reports |
 
-The Worker knows the Reviewer will scrutinize every line, so its optimal strategy is to write clean code the first time. The Reviewer has no fix burden — it just reports — so it has no incentive to downplay findings. The Test-Writer defines the contract independently, so the Worker can't write tests that match its own mistakes.
+In practice the system uses two reviewers, one for correctness and one for quality, but the incentive logic is the same for both. The Worker knows scrutiny is coming. The Reviewer has no reason to go easy.
 
 This is a Nash equilibrium: neither agent benefits from changing its strategy.
 
@@ -66,6 +66,8 @@ The Worker is forbidden from modifying the Test-Writer's test assertions. It can
 
 This closes the original incentive problem: the contract is defined before the Worker exists, by an agent that has never seen the implementation.
 
+A natural objection at this point is that writing specs and tests before any code sounds like waterfall. It isn't, for two reasons. First, the specs are scoped to individual components, not the whole system. The process starts with a high-level design of the distributed system, then iteratively decomposes into smaller components. Each component gets its own spec when it's time to build it, not all upfront. Second, even within a single component, the spec is a living artifact. Marc Brooker [draws the distinction clearly](https://brooker.co.za/blog/2026/04/09/waterfall-vs-spec.html): spec-driven development is not waterfall because the spec iterates rather than getting locked before implementation starts. Every time a reviewer finds a violation and logs it to `progress.txt`, that's new information that sharpens the spec. The agents iterate against it. That's the opposite of freezing requirements upfront.
+
 ## The Task Flow
 
 For each implementation task, the inner loop runs:
@@ -96,13 +98,7 @@ Iteration 5:  Worker           → reads progress.txt, fixes violations → mark
 Iteration 6:  Quality-Reviewer → re-audits → PASS (score: 4/10) → marks PRE-CR [x]
 ```
 
-The loop terminates when both reviewers find zero blocking issues. If the Worker writes clean code upfront, because it knows the audit is coming and the cost of bounce-backs, the review tasks pass on the first try.
-
-## Cost Awareness
-
-The Worker is explicitly told, in its system prompt, that each bounce-back costs a full iteration: time, tokens, and credits. This makes the payoff structure visible. The Worker can only make rational decisions about code quality if it knows the cost of getting caught.
-
-This aligns with prospect theory. The Worker is loss-averse. The risk of losing an iteration is more motivating than the certainty of a harmless warning.
+The Worker is explicitly told, in its system prompt, that each bounce-back costs a full iteration: time, tokens, and credits. This aligns with prospect theory. The Worker is loss-averse. The risk of losing an iteration is more motivating than the certainty of a harmless warning. If the Worker writes clean code upfront, knowing the audit is coming, the review tasks pass on the first try.
 
 ## Integration Tests as Deterministic Proof
 
@@ -122,7 +118,7 @@ The Integration Tester reads `requirements.md`, not the implementation code. It 
 | 6 | Integration tests verify the deployed system | **Deterministic** |
 | 7 | Final Validator cross-references everything | Probabilistic |
 
-Steps 5 and 6 are the real gates. The LLM steps add value — they catch things the deterministic gates miss — but they are not the primary defense.
+Steps 5 and 6 are the real gates. The LLM steps add value, catching things the deterministic gates miss, but they are not the primary defense.
 
 ## Model Selection
 
@@ -146,7 +142,7 @@ Each agent's system prompt is concatenated with the spec context and piped to Cl
 
 ## Parallel Workstreams
 
-For large projects with multiple independent components, the system supports parallel execution using git worktrees. Each workstream gets its own branch and worktree with isolated build artifacts. Without this, parallel Workers would step on each other's compiled output.
+For larger projects with independent components, the loop extends naturally. Each workstream gets its own git worktree with an isolated branch and build artifacts. Without this, parallel Workers would step on each other's compiled output.
 
 Multiple Ralph loops run simultaneously, and CRs are raised independently per workstream. When all workstreams complete, they're merged and the Integration Tester and Final Validator run against the combined system.
 
@@ -156,21 +152,15 @@ Formal verification finds bugs no test will catch. Using TLA+/Quint to model-che
 
 The human's job shifts from writing code to writing specs, and that changes how you use your time. The requirements document, the design document, and the task structure become the most important artifacts. The better the spec, the better the AI-generated code. The worse the spec, the more bounce-backs and wasted iterations. If the requirements are ambiguous, the agents argue about them through violation reports and corrections, which is expensive. Clarity up front is cheap.
 
-In practice, this has changed my time allocation dramatically. Before this system, on a 30-day feature, I'd spend roughly half the time on design and half on implementation: writing code, debugging, iterating. Now I spend around 90% of that time on design: requirements, architecture, formal verification. The implementation runs largely unattended. That shift is what makes TLA+ feasible. It's not a luxury you can afford when you're also writing all the code, but it becomes the obvious move when you're not.
+In practice, this has changed my time allocation dramatically. Take a typical sprint task that requires a low-level design: a component that would take roughly five days to complete. Previously I'd spend two days on design and three on implementation, writing code, debugging, iterating. Now I spend three to four days on design and one to two on implementation. The implementation runs largely unattended.
 
-A natural objection here is that this sounds like waterfall, big upfront design before any code is written. It isn't, for two reasons.
-
-First, the specs in this system are scoped to individual components, not the whole system. The process starts with a high-level design of the distributed system, then iteratively decomposes into smaller components. Each component gets its own requirements and design spec when it's time to build it, not all upfront. The high-level design evolves as you learn more about each component.
-
-Second, even within a single component, the spec is a living artifact. Marc Brooker [draws the distinction clearly](https://brooker.co.za/blog/2026/04/09/waterfall-vs-spec.html): spec-driven development is not waterfall because the spec iterates rather than getting locked before implementation starts. Every time a reviewer finds a violation and logs it to `progress.txt`, that's new information that refines understanding of what the component should do. The agents iterate against a spec that gets sharper with each cycle. That's the opposite of freezing requirements upfront.
+The same shift applies at a larger scale. When designing a distributed system, something that might take thirty days end to end, the high-level design itself benefits from the same discipline. I spend more time on architecture, formal verification, and getting the component specs right before any agent writes a line of code. That shift is what makes TLA+ feasible. It's not a luxury you can afford when you're also writing all the code, but it becomes the obvious move when you're not.
 
 The payoff is fewer production bugs. A formally verified design with a well-structured spec produces fewer surprises when it ships. The rework that used to happen after the fact gets moved to the design phase, where it's far cheaper to fix.
 
-No matter how much you delegate to AI, the probabilistic nature of LLMs means you can't skip human review entirely. After the Final Validator passes and before raising a code review, I do a manual self-review of the output. This is a deterministic gate, not probabilistic like the LLM reviewers, because it's a human decision: approve or don't. That gate catches the things all the agents missed and gives you confidence before the code goes to other people.
+No matter how much you delegate to AI, you can't skip human review entirely. After the Final Validator passes and before raising a code review, I do a manual self-review of the output. This is a deterministic gate, not probabilistic like the LLM reviewers, because it's a human decision: approve or don't. That gate catches the things all the agents missed and gives you confidence before the code goes to other people.
 
-Deterministic gates matter more than probabilistic reviews. The build (compiles or doesn't), the unit tests (pass or fail), the integration tests (pass or fail), and the human self-review (approve or don't) are the real quality gates. The LLM reviewers add value by catching things the deterministic gates miss: code style, documentation, design compliance. But they're not the primary defense. Build the deterministic gates first; add the reviewers on top.
-
-The system works because the structure does the work, not the prompts. Each agent is doing a narrow job it can't avoid doing badly. That's the insight.
+The system works because the structure does the work, not the prompts. Each agent is doing a narrow job with clear incentives. The human's job is to write a spec good enough that the agents have no room to go wrong.
 
 ---
 
