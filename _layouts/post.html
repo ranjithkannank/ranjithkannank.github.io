@@ -15,3 +15,27 @@ layout: default
     {{ content }}
   </div>
 </article>
+
+{% if page.related %}
+  {% assign related_posts = "" | split: "" %}
+  {% for related_url in page.related %}
+    {% for post in site.posts %}
+      {% if post.url == related_url %}
+        {% assign related_posts = related_posts | push: post %}
+      {% endif %}
+    {% endfor %}
+  {% endfor %}
+  {% if related_posts.size > 0 %}
+  <div class="related-posts">
+    <h2>Related</h2>
+    <ul>
+      {% for post in related_posts %}
+      <li>
+        <a href="{{ post.url | relative_url }}">{{ post.title }}</a>
+        <span class="date">{{ post.date | date: "%B %-d, %Y" }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+{% endif %}

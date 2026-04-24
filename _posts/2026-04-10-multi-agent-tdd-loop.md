@@ -2,6 +2,9 @@
 layout: post
 title: "Building a Multi-Agent TDD Loop for Autonomous Code Development"
 date: 2026-04-10
+related:
+  - /2026/04/19/pit-mutation-testing-ralph-loop/
+  - /2026/04/23/final-validator-ralph-loop/
 ---
 
 Most AI coding workflows put one agent in charge of everything: write the code, write the tests, review the result. This post describes a different approach, a multi-agent TDD system with six specialized agents and competing incentives, that I've been running in production. The task execution is orchestrated by a [Ralph loop](https://ghuntley.com/ralph/), an autonomous bash loop that drives Claude Code against a task list until everything is done. The agents are what make it work.
@@ -164,4 +167,4 @@ The system works because the structure does the work, not the prompts. Each agen
 
 ---
 
-*Credit to [Geoffrey Huntley](https://ghuntley.com/ralph/) for the Ralph loop technique that this system builds on. Further reading: Marc Brooker on [spec-driven development vs waterfall](https://brooker.co.za/blog/2026/04/09/waterfall-vs-spec.html) and [specifications as the future of AI-assisted development](https://kiro.dev/blog/kiro-and-the-future-of-software-development/).*
+*Credit to [Geoffrey Huntley](https://ghuntley.com/ralph/) for the Ralph loop technique that this system builds on. Further reading: Marc Brooker on [spec-driven development vs waterfall](https://brooker.co.za/blog/2026/04/09/waterfall-vs-spec.html) and [specifications as the future of AI-assisted development](https://kiro.dev/blog/kiro-and-the-future-of-software-development/). For Java services, I've also added a mutation testing gate using PIT — covered in [Wiring Mutation Testing into an Autonomous Coding Loop](/2026/04/19/pit-mutation-testing-ralph-loop/).*
