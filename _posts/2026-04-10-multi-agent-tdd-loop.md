@@ -5,6 +5,7 @@ date: 2026-04-10
 related:
   - /2026/04/19/pit-mutation-testing-ralph-loop/
   - /2026/04/23/final-validator-ralph-loop/
+  - /2026/04/27/integration-test-contracts/
 ---
 
 Most AI coding workflows put one agent in charge of everything: write the code, write the tests, review the result. This post describes a different approach, a multi-agent TDD system with six specialized agents and competing incentives, that I've been running in production. The task execution is orchestrated by a [Ralph loop](https://ghuntley.com/ralph/), an autonomous bash loop that drives Claude Code against a task list until everything is done. The agents are what make it work.
@@ -51,9 +52,9 @@ The **Correctness Reviewer** verifies that unit tests prove the implementation m
 
 The **Quality Reviewer** audits code against the team's quality rules with adversarial intent. It uses severity scoring: high violations are blocking, medium and low violations accumulate points. If the score exceeds the threshold, the task bounces back to the Worker.
 
-The **Integration Tester** writes and runs integration tests against the real deployed system. It has no knowledge of the implementation, only the requirements and API contract. It tests both prescribed scenarios (requirement verification) and creative scenarios: concurrency, wrong-state, rapid-fire transitions.
+The **Integration Tester** writes and runs integration tests against the real deployed system. It has no knowledge of the implementation, only the requirements and API contract. It tests both prescribed scenarios (requirement verification) and creative scenarios: concurrency, wrong-state, rapid-fire transitions. For specs that need stronger guarantees, it implements to a [test contract](/2026/04/27/integration-test-contracts/) that declares minimum assertions and required fields per test.
 
-The **Final Validator** cross-references requirements, design, tasks, progress log, and actual code to verify all requirements are met. If deviations are found, it creates fix tasks that feed back into the loop. It uses the most capable model (Opus) because it runs once and the quality of that single validation matters most.
+The **Final Validator** cross-references requirements, design, tasks, progress log, and actual code to verify all requirements are met. If deviations are found, it creates fix tasks that feed back into the loop. It uses the most capable model (Opus) because it runs once and the quality of that single validation matters most. The [design and rationale behind the validator](/2026/04/23/final-validator-ralph-loop/) is covered in a separate post.
 
 ## Why Separate Contexts Matter
 
@@ -121,7 +122,7 @@ The Integration Tester reads `requirements.md`, not the implementation code. It 
 | 6 | Integration tests verify the deployed system | **Deterministic** |
 | 7 | Final Validator cross-references everything | Probabilistic |
 
-Steps 5 and 6 are the real gates. The LLM steps add value, catching things the deterministic gates miss, but they are not the primary defense.
+Steps 5 and 6 are the real gates. The LLM steps add value, catching things the deterministic gates miss, but they are not the primary defense. Even step 6 has a subtlety: integration tests can [go green without testing anything](/2026/04/27/integration-test-contracts/) if the assertions are weak or guarded by early returns.
 
 ## Model Selection
 
