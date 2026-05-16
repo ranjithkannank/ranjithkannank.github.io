@@ -4,7 +4,9 @@ title: "Integration Test Contracts: When Green Doesn't Mean Correct"
 date: 2026-04-27
 related:
   - /2026/04/10/multi-agent-tdd-loop/
+  - /2026/04/19/pit-mutation-testing-ralph-loop/
   - /2026/04/23/final-validator-ralph-loop/
+  - /2026/05/10/verus-calibration-formal-verifier-loop/
 ---
 
 The [multi-agent Ralph loop](https://ranjithkannan.com/2026/04/10/multi-agent-tdd-loop/) treats integration tests as deterministic proof that the deployed system satisfies requirements. This post is about what happens when that proof is hollow: tests that go green without testing anything, and a contract mechanism that prevents it.

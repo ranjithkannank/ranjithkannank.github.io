@@ -6,6 +6,7 @@ related:
   - /2026/04/19/pit-mutation-testing-ralph-loop/
   - /2026/04/23/final-validator-ralph-loop/
   - /2026/04/27/integration-test-contracts/
+  - /2026/05/10/verus-calibration-formal-verifier-loop/
 ---
 
 Most AI coding workflows put one agent in charge of everything: write the code, write the tests, review the result. This post describes a different approach, a multi-agent TDD system with six specialized agents and competing incentives, that I've been running in production. The task execution is orchestrated by a [Ralph loop](https://ghuntley.com/ralph/), an autonomous bash loop that drives Claude Code against a task list until everything is done. The agents are what make it work.
