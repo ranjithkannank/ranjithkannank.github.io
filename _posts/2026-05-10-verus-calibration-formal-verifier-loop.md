@@ -9,23 +9,25 @@ related:
   - /2026/04/27/integration-test-contracts/
 ---
 
-An autonomous coding loop that cannot satisfy its feedback signal except by being correct turns out to be a useful construct. This post is what happens when we wire one to a formal verifier and ask it to prove three non-trivial things.
+An autonomous coding loop that cannot satisfy its feedback signal except by being correct turns out to be a useful construct. This post is what happens when we wire one to a formal verifier and ask it to prove four non-trivial things.
 
 The previous four posts in this series tightened the feedback signal that an autonomous coding loop runs against. First plain tests. Then [mutation testing](https://ranjithkannan.com/2026/04/19/pit-mutation-testing-ralph-loop/), to check that the tests caught real bugs. Then a [separate auditor](https://ranjithkannan.com/2026/04/23/final-validator-ralph-loop/), so the loop could not grade itself. Then [integration contracts](https://ranjithkannan.com/2026/04/27/integration-test-contracts/), to close the gap between green tests and observable correctness. Each step closed a hole through which a wrong loop could still pass.
 
 A formal verifier is the limit of that progression. It is a feedback signal the agent cannot satisfy except by either weakening the specification or actually being correct. The methodology in this post is the rule that closes the first path: no spec weakening, audited at two boundaries, on every commit. The empirical question is whether the loop can still produce verified code under that constraint.
 
-We picked Verus, because it operates on real Rust rather than on a custom language. We picked three exercises of increasing difficulty: a sorted binary search, a fixed-capacity append-only log with a frame property, and a Byzantine quorum check whose spec talks about mathematical set cardinality but whose implementation has to walk a `Vec`. The first two are textbook. The third is where the abstraction-to-implementation gap shows up.
+We picked Verus, because it operates on real Rust rather than on a custom language. We picked four exercises of increasing difficulty: a sorted binary search, a fixed-capacity append-only log with a frame property, a Byzantine quorum check whose spec talks about mathematical set cardinality but whose implementation has to walk a `Vec`, and a single-module quorum certificate with a safety lemma. The first two are textbook. The third is where the abstraction-to-implementation gap shows up. The fourth is the first artifact on a path toward verified Byzantine agreement.
 
 Everything described here lives at <https://github.com/ranjithkannank/verus-calibration>. The per-section links below point at the exact files.
 
 ## The setup
 
-Three roles, three [Claude Code subagents](https://github.com/ranjithkannank/verus-calibration/tree/main/.claude/agents), three (mostly two) models.
+Three roles, three [Claude Code subagents](https://github.com/ranjithkannank/verus-calibration/tree/main/.claude/agents), one model now (originally two).
 
 - **[Architect](https://github.com/ranjithkannank/verus-calibration/blob/main/.claude/agents/architect.md)** (Opus 4.7). Reads the frozen spec. Writes a design note. Does not see verifier output on the first pass.
-- **[Implementer](https://github.com/ranjithkannank/verus-calibration/blob/main/.claude/agents/implementer.md)** (Sonnet 4.6). One attempt per call: edit the file, run verus, log the result.
+- **[Implementer](https://github.com/ranjithkannank/verus-calibration/blob/main/.claude/agents/implementer.md)** (Opus 4.7, originally Sonnet 4.6). One attempt per call: edit the file, run verus, log the result.
 - **[Reviewer](https://github.com/ranjithkannank/verus-calibration/blob/main/.claude/agents/reviewer.md)** (Opus 4.7). After verus passes, audits the diff against the frozen baseline. Returns `APPROVE` or `REJECT`.
+
+The implementer ran on Sonnet 4.6 for the original three exercises and handled them cleanly. For BFT-path exercises starting with quorum_cert the implementer was switched to Opus 4.7. Those proof obligations involve genuine cardinality and pigeonhole reasoning where the model needs to plan over many tokens of internal thinking before producing structured output. Aligning the hardest role to the strongest model, even when that role is the most expensive.
 
 The reviewer is a separate role for the same reason the [previous post](https://ranjithkannan.com/2026/04/23/final-validator-ralph-loop/) argued for splitting audit from decision. The architect committed to a design that produced the implementation. Asking it to audit that same implementation for spec drift bakes in confirmation bias. A separate audit on a fresh context is a cheap structural safeguard.
 
@@ -65,6 +67,8 @@ The `--` separator is required. Without it the variadic `--allowedTools` list ea
 
 Each implementer attempt is its own git commit. Two reasons. The reviewer's diff target needs to be a stable snapshot. And when something goes wrong later, we can quote the actual code.
 
+Each implementer attempt is also scoped narrowly. The prompt directs the implementer to either pick the next unfinished sub-task from the architect's design or scope its edits to the specific failing function from the latest verifier output. Small, surgical edits per iteration, not file-wide rewrites. The orchestrator iterates; the implementer does not need to fix everything in one call.
+
 ## The two sandbox layers
 
 A loop that runs unattended needs boundaries. There are two.
@@ -93,7 +97,7 @@ done <<< "$frozen"
 
 **Capability boundary: a Claude Code tool whitelist.** Each `claude -p` call passes a role-scoped `--allowedTools` list and a universal `--disallowedTools` deny set. The deny set includes `WebFetch`, `WebSearch`, `Task` (no sub-agent fan-out), bash patterns for `rm`, `git push/reset/rebase/checkout/restore/config`, `*--no-verify*` so the agent cannot bypass the hook, `curl/wget/ssh`, `brew/npm/pip`, `sudo`. The architect gets only the tools it needs to write a design note. The reviewer does not get `Edit`.
 
-To state what this is not: it is not process isolation, it is not a network namespace, and a deliberately adversarial agent could find paths around it. The agents in this experiment are not adversarial. The boundary's job is to make it impossible for an honest worker to cheat accidentally. To silently weaken a spec because the verifier complained, or to slip an `assume` past the reviewer because it was tired. That boundary held across all three exercises.
+To state what this is not: it is not process isolation, it is not a network namespace, and a deliberately adversarial agent could find paths around it. The agents in this experiment are not adversarial. The boundary's job is to make it impossible for an honest worker to cheat accidentally. To silently weaken a spec because the verifier complained, or to slip an `assume` past the reviewer because it was tired. That boundary held across all four exercises.
 
 ## What happened
 
@@ -102,6 +106,7 @@ To state what this is not: it is not process isolation, it is not a network name
 | binary_search    | DONE   | 1                  | Architect's design predicted every invariant.   |
 | bounded_log      | DONE   | 1 (post re-freeze) | Methodology pressed hardest here.               |
 | quorum_count     | DONE   | 2                  | Real concrete-to-abstract proof engineering.    |
+| quorum_cert      | DONE   | 6                  | First BFT-shaped exercise. Six narrow iterations through the architect's sub-task list. Pigeonhole-via-contradiction proof of a quorum certificate's honest-voter guarantee. |
 
 ### binary_search
 
@@ -223,9 +228,17 @@ The reviewer's audit took under a minute. Five-point checklist passed with speci
 
 The audit role doing more than gatekeeping. It accumulated a pattern across exercises and proposed promoting it to architect-level guidance.
 
+### quorum_cert
+
+The first BFT-shaped exercise, after the calibration. The spec asks for two obligations: a structural runtime check that a quorum certificate has the right number of distinct in-range voters, and a safety lemma that any valid certificate over `n` nodes with fewer than `n/3` Byzantine voters contains at least one honest voter. The cryptographic predicates are uninterpreted, declared with `pub uninterp spec fn` and no body. The verified module proves the BFT-layer reasoning; a real deployment connects signature checks via a wrapper outside.
+
+The architect proposed a bitmap-backed structural check (the same pattern that worked for `quorum_count`) and a pigeonhole-via-contradiction proof of the safety lemma. The design note ended in a nine-item sub-task list, ordered easiest to hardest. The implementer worked through it in six narrow iterations: skeleton, cursor bounds, bitmap abstraction invariant, pairwise distinctness, helpers lifted from `quorum_count`, then the safety lemma. Each attempt scoped to one sub-task. The final attempt landed `12 verified, 0 errors` with the pigeonhole step expressed as `if !(exists honest h) { assert(false) }`: the negated existential turns into a universal, which implies a subset relation between the certificate's voters and the Byzantine set, which closes against the threshold by cardinality.
+
+The reviewer's APPROVE noted the same pattern recurring across exercises and flagged it for the architect's playbook. Cross-exercise memory in `AGENTS.md` already contained the universe-size lemma pattern from `quorum_count`; the architect for `quorum_cert` lifted it directly. Each exercise's findings make the next one cheaper. The full per-attempt history and reviewer audit live in [`logs/quorum_cert/`](https://github.com/ranjithkannank/verus-calibration/tree/main/logs/quorum_cert), and the verified module sits at [`exercises/quorum_cert.rs`](https://github.com/ranjithkannank/verus-calibration/blob/main/exercises/quorum_cert.rs).
+
 ## What the loop got right
 
-Three claims we are willing to defend from this run.
+Five claims we are willing to defend from this run.
 
 **The no-spec-weakening rule held under pressure.** Both the mechanical hook and the semantic reviewer caught real violations. The hook caught a body-content modification on bounded_log that no other rule matched. The reviewer caught a spec-shape modification that the hook missed because its check is keyword-prefix only. Two layers that fail differently are the boundary. One layer alone was not enough.
 
@@ -233,15 +246,19 @@ Three claims we are willing to defend from this run.
 
 **The role split bought what it advertised.** The architect produced substantive design notes that the implementers followed. The implementers self-diagnosed their own failures and named follow-up plans rather than thrashing. The reviewer audited the diff with checklist rigor and contributed cross-exercise pattern observations. A single Opus call could have done all three jobs, probably. Whether its review of its own work would have been as honest as a separate role's, we doubt.
 
+**Per-iteration scoping in the implementer prompt.** Each implementer call is directed at the smallest unfinished sub-task from the architect's design, or at the specific failing function from the latest verifier output. Without this, an implementer attempt could rewrite the whole file and still pass the "one-attempt-per-call" rule; with it, attempts are narrow and the next iteration picks up where the previous left off. The orchestrator does the iterating; the implementer does one thing well per call.
+
+**Architect produces a sub-task list as part of the design.** Every design note ends with a numbered list of sub-tasks, ordered easiest to hardest, each small enough to land in one edit-verus-iterate cycle. The implementer reads this list and works through it in order. The list is what makes the per-call scoping concrete: "scope to the smallest unfinished sub-task" means something specific because the architect listed them.
+
 ## What the loop got wrong
 
 Three honest shortcomings worth flagging.
 
-**The hook's spec-preservation check has a known gap.** It looks for lines whose first token is `requires` or `ensures`. The body content of those clauses, the continuation lines, is not on the frozen-line list. The bounded_log diff changed those body lines and the hook let it through. The reviewer caught it, which is what splitting audit from decision predicts. The fix is line-range matching instead of line-prefix matching.
+**The hook's spec-preservation check had a known gap.** It used to look for lines whose first token was `requires` or `ensures`, missing the body content underneath. The bounded_log REJECT was caught only by the reviewer because the diff touched body lines. The hook now walks the frozen file by indentation and extracts the complete clause body, not just keyword lines. The fix sits in [`scripts/git-hooks/pre-commit`](https://github.com/ranjithkannank/verus-calibration/blob/main/scripts/git-hooks/pre-commit) with tests under `scripts/test-hook-spec-preservation.sh`.
 
-**The orchestrator treats every non-zero claude exit code as verus-failed.** It is not. An exit code can also mean a rate-limit response, a budget cap firing, a network blip. The orchestrator should distinguish these and recover appropriately, not just count another failed attempt and try again. On a longer run, this would produce wasted iterations against transient infrastructure issues.
+**The orchestrator used to treat every non-zero claude exit code as verus-failed.** A rate-limited response, a budget cap firing, a network blip, an invocation error: all produced the same exit code and the loop would try the next iteration against the same transient problem. The first quorum_count run burned 27 rate-limited iterations before its outer ceiling fired. The orchestrator now classifies failures by grepping the iteration log against known signatures and exits cleanly on infrastructure failures rather than churning. Tests in [`ralph/test-classify-failure.sh`](https://github.com/ranjithkannank/verus-calibration/blob/main/ralph/test-classify-failure.sh).
 
-**Three exercises is not a benchmark.** The vericoding paper has 12,504 specifications. We have three. The generalizations we are comfortable drawing are at the level of "this failure mode exists" or "this rule survived this pressure," not "success rate equals X percent." Sample size three is sample size three.
+**Four exercises is not a benchmark.** The vericoding paper has 12,504 specifications. We have four. The generalizations we are comfortable drawing are at the level of "this failure mode exists" or "this rule survived this pressure," not "success rate equals X percent." Sample size four is sample size four.
 
 ## Where this fits
 
@@ -259,13 +276,13 @@ After the Microsoft work in particular, the claim worth defending is narrower th
 
 There is also a second contribution worth naming: the operator-intervention case on bounded_log. Most published vericoding results either succeed silently or fail silently. The loop's behavior on the bounded_log conflict, where the agent refused to cheat in either direction, articulated the constraint, named the empowered role, and stopped, is the kind of structured-failure output a trustworthy methodology should produce. A single-shot prompt would either silently apply `final(self)` or silently fail. This run surfaced the conflict, blamed the right party (the operator), and waited.
 
-The next rung is multi-module Verus code with cross-module invariants. The concrete plan is to draw tasks from VeruSAGE-Bench (so the results are comparable to existing published numbers) and run them through this loop, with AutoVerus and VeruSAGE as baselines on the same tasks.
+The next rung is multi-module Verus code with cross-module invariants. The first single-module BFT primitive (a verified quorum certificate with its safety lemma) is in the repo as `quorum_cert`; the multi-module step is the next concrete artifact on the path. Drawing tasks from VeruSAGE-Bench so the results are comparable to existing published numbers, with AutoVerus and VeruSAGE as baselines, is the obvious benchmark direction once the multi-module harness is built.
 
 ## Reproducing
 
 - Repo: <https://github.com/ranjithkannank/verus-calibration>
 - Verus: `0.2026.05.13.fae8859`, arm64-macos binary release.
-- Models: `claude-opus-4-7` for architect and reviewer, `claude-sonnet-4-6` for implementer. The bash script holds the source of truth. Subagent frontmatter declares defaults; the outer loop overrides per call.
+- Models: `claude-opus-4-7` for all three roles. The implementer was originally `claude-sonnet-4-6` and handled the three calibration exercises competently; switched for the BFT-path exercises starting with `quorum_cert`. The bash script in `ralph/run-exercise.sh` holds the model choices. Subagent frontmatter declares defaults; the outer loop overrides per call.
 - All prompts are inlined in `ralph/run-exercise.sh`. All raw verifier output is committed under `logs/<ex>/raw/`. `AGENTS.md` is the rule book; the pre-commit hook in `scripts/git-hooks/pre-commit` is the enforcement.
 
 ---
