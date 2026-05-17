@@ -96,8 +96,6 @@ The library is also not, on its own, a contribution to consensus algorithm desig
 - Reviewer's audit: [`logs/quorum_cert/review.md`](https://github.com/ranjithkannank/verus-calibration/blob/main/logs/quorum_cert/review.md)
 - Final state in git: commit [`5a2a87d`](https://github.com/ranjithkannank/verus-calibration/commit/5a2a87d)
 
-Code: MIT. Writing: CC BY 4.0.
-
 ## What's next on this path
 
 A verified Byzantine agreement primitive (the textbook one-shot Lamport-Shostak-Pease problem) is the next step. After that, a verified sensor fusion algorithm where `2f+1` Byzantine-tolerant sensors produce an agreed-upon reading whose safety property constrains it to the convex hull of correct sensor outputs. After that, a hardware-deployed demonstration on dissimilar redundant boards.

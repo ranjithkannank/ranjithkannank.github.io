@@ -175,5 +175,3 @@ The broader thesis the work is in service of: formal verification of Byzantine-t
   - [`exercises/marzullo.rs`](https://github.com/ranjithkannank/verus-calibration/blob/main/exercises/marzullo.rs)
 - The methodology described in the prior post: <https://ranjithkannan.com/2026/05/10/verus-calibration-formal-verifier-loop/>
 - The marzullo operator-intervention case in full detail, including the constructive counterexample and the architect's three revisions: the prior frozen tag's `logs/marzullo/blocked.md`, preserved in git history at commit [`c859e6f`](https://github.com/ranjithkannank/verus-calibration/commit/c859e6f).
-
-Code is MIT. Writing is CC BY 4.0.
