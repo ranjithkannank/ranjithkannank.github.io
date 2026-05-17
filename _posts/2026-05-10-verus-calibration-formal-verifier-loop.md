@@ -7,6 +7,7 @@ related:
   - /2026/04/19/pit-mutation-testing-ralph-loop/
   - /2026/04/23/final-validator-ralph-loop/
   - /2026/04/27/integration-test-contracts/
+  - /2026/05/16/verified-byzantine-quorum-certificate/
 ---
 
 An autonomous coding loop that cannot satisfy its feedback signal except by being correct turns out to be a useful construct. This post is what happens when we wire one to a formal verifier and ask it to prove four non-trivial things.
@@ -234,7 +235,7 @@ The first BFT-shaped exercise, after the calibration. The spec asks for two obli
 
 The architect proposed a bitmap-backed structural check (the same pattern that worked for `quorum_count`) and a pigeonhole-via-contradiction proof of the safety lemma. The design note ended in a nine-item sub-task list, ordered easiest to hardest. The implementer worked through it in six narrow iterations: skeleton, cursor bounds, bitmap abstraction invariant, pairwise distinctness, helpers lifted from `quorum_count`, then the safety lemma. Each attempt scoped to one sub-task. The final attempt landed `12 verified, 0 errors` with the pigeonhole step expressed as `if !(exists honest h) { assert(false) }`: the negated existential turns into a universal, which implies a subset relation between the certificate's voters and the Byzantine set, which closes against the threshold by cardinality.
 
-The reviewer's APPROVE noted the same pattern recurring across exercises and flagged it for the architect's playbook. Cross-exercise memory in `AGENTS.md` already contained the universe-size lemma pattern from `quorum_count`; the architect for `quorum_cert` lifted it directly. Each exercise's findings make the next one cheaper. The full per-attempt history and reviewer audit live in [`logs/quorum_cert/`](https://github.com/ranjithkannank/verus-calibration/tree/main/logs/quorum_cert), and the verified module sits at [`exercises/quorum_cert.rs`](https://github.com/ranjithkannank/verus-calibration/blob/main/exercises/quorum_cert.rs).
+The reviewer's APPROVE noted the same pattern recurring across exercises and flagged it for the architect's playbook. Cross-exercise memory in `AGENTS.md` already contained the universe-size lemma pattern from `quorum_count`; the architect for `quorum_cert` lifted it directly. Each exercise's findings make the next one cheaper. The full per-attempt history and reviewer audit live in [`logs/quorum_cert/`](https://github.com/ranjithkannank/verus-calibration/tree/main/logs/quorum_cert), and the verified module sits at [`exercises/quorum_cert.rs`](https://github.com/ranjithkannank/verus-calibration/blob/main/exercises/quorum_cert.rs). A [dedicated follow-up post](https://ranjithkannan.com/2026/05/16/verified-byzantine-quorum-certificate/) covers the proof structure, the pigeonhole-by-contradiction pattern, and the BFT-path roadmap in more depth.
 
 ## What the loop got right
 

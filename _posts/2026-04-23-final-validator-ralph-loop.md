@@ -7,6 +7,7 @@ related:
   - /2026/04/19/pit-mutation-testing-ralph-loop/
   - /2026/04/27/integration-test-contracts/
   - /2026/05/10/verus-calibration-formal-verifier-loop/
+  - /2026/05/16/verified-byzantine-quorum-certificate/
 ---
 
 The [multi-agent Ralph loop](https://ranjithkannan.com/2026/04/10/multi-agent-tdd-loop/) uses six agents to implement, test, and review code autonomously. This post is about what happens at the end: how the loop decides it's actually done, and why the thing that checks completion shouldn't be the thing that decides it.

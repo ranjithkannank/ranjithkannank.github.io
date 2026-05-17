@@ -7,6 +7,7 @@ related:
   - /2026/04/23/final-validator-ralph-loop/
   - /2026/04/27/integration-test-contracts/
   - /2026/05/10/verus-calibration-formal-verifier-loop/
+  - /2026/05/16/verified-byzantine-quorum-certificate/
 ---
 
 This post describes how I wired PIT mutation testing into the [multi-agent Ralph loop](https://ranjithkannan.com/2026/04/10/multi-agent-tdd-loop/) as an automated gate. It assumes you're familiar with mutation testing and why it matters. What's new here is turning PIT from an interactive analysis tool into a deterministic gate inside an agent pipeline.
