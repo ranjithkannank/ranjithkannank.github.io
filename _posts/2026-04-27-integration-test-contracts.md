@@ -8,6 +8,7 @@ related:
   - /2026/04/23/final-validator-ralph-loop/
   - /2026/05/10/verus-calibration-formal-verifier-loop/
   - /2026/05/16/verified-byzantine-quorum-certificate/
+  - /2026/05/17/verified-byzantine-tolerant-sensor-fusion/
 ---
 
 The [multi-agent Ralph loop](https://ranjithkannan.com/2026/04/10/multi-agent-tdd-loop/) treats integration tests as deterministic proof that the deployed system satisfies requirements. This post is about what happens when that proof is hollow: tests that go green without testing anything, and a contract mechanism that prevents it.

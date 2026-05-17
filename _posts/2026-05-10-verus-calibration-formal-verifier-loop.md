@@ -8,6 +8,7 @@ related:
   - /2026/04/23/final-validator-ralph-loop/
   - /2026/04/27/integration-test-contracts/
   - /2026/05/16/verified-byzantine-quorum-certificate/
+  - /2026/05/17/verified-byzantine-tolerant-sensor-fusion/
 ---
 
 An autonomous coding loop that cannot satisfy its feedback signal except by being correct turns out to be a useful construct. This post is what happens when we wire one to a formal verifier and ask it to prove four non-trivial things.

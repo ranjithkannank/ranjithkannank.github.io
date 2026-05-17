@@ -8,6 +8,7 @@ related:
   - /2026/04/23/final-validator-ralph-loop/
   - /2026/04/27/integration-test-contracts/
   - /2026/05/10/verus-calibration-formal-verifier-loop/
+  - /2026/05/17/verified-byzantine-tolerant-sensor-fusion/
 ---
 
 The [previous post in this series](https://ranjithkannan.com/2026/05/10/verus-calibration-formal-verifier-loop/) used Verus and an autonomous coding loop to verify three calibration exercises. The exercises were chosen because we needed to know whether the methodology survived pressure before staking real work on it. This post is the first piece of real work: a verified Byzantine quorum certificate library, with a safety lemma proven, produced end to end by the same loop. The infrastructure that the calibration tested now does what it was built to do.
