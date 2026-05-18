@@ -5,7 +5,6 @@ date: 2026-05-17
 related:
   - /2026/04/10/multi-agent-tdd-loop/
   - /2026/05/10/verus-calibration-formal-verifier-loop/
-  - /2026/05/16/verified-byzantine-quorum-certificate/
 ---
 
 Modern aircraft, drones, and increasingly autonomous vehicles all rely on multiple redundant sensors to know what's happening around them. Three accelerometers, two GPS receivers, a stack of inertial reference units. Each sensor's reading is uncertain, and any sensor can fail. Some failures are silent (the sensor stops reporting); some are deceptive (the sensor reports a value that's just plausible enough not to be flagged). The deceptive case is the harder one. Distributed-systems research has carried the name "Byzantine" for it since Lamport, Shostak, and Pease coined it in 1982.
@@ -62,7 +61,7 @@ Code is at <https://github.com/ranjithkannank/verus-calibration> with the full p
 
 ## Two verified sensor-fusion artifacts
 
-The sensor-fusion track builds on an earlier exercise, a [verified Byzantine quorum certificate](https://ranjithkannan.com/2026/05/16/verified-byzantine-quorum-certificate/) ([`exercises/quorum_cert.rs`][qc]), that proved the pigeonhole reasoning every Byzantine consensus protocol relies on. The two new artifacts apply the same machinery to sensor fusion.
+The sensor-fusion track builds on an earlier exercise, a verified Byzantine quorum certificate ([`exercises/quorum_cert.rs`][qc]), that proved the pigeonhole reasoning every Byzantine consensus protocol relies on. The two new artifacts apply the same machinery to sensor fusion.
 
 **Fault-tolerant midpoint** ([`exercises/ft_midpoint.rs`][fm]) was the first. Input: a vector of `i64` sensor readings and a Byzantine bound `f`. Output: a single `i64` guaranteed to lie between the lowest and highest readings that honest sensors would have produced. The specification, in Verus:
 

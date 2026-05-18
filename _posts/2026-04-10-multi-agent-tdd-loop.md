@@ -7,7 +7,6 @@ related:
   - /2026/04/23/final-validator-ralph-loop/
   - /2026/04/27/integration-test-contracts/
   - /2026/05/10/verus-calibration-formal-verifier-loop/
-  - /2026/05/16/verified-byzantine-quorum-certificate/
   - /2026/05/17/verified-byzantine-tolerant-sensor-fusion/
 ---
 

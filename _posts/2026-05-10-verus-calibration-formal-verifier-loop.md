@@ -7,7 +7,6 @@ related:
   - /2026/04/19/pit-mutation-testing-ralph-loop/
   - /2026/04/23/final-validator-ralph-loop/
   - /2026/04/27/integration-test-contracts/
-  - /2026/05/16/verified-byzantine-quorum-certificate/
   - /2026/05/17/verified-byzantine-tolerant-sensor-fusion/
 ---
 
@@ -244,7 +243,27 @@ The first BFT-shaped exercise, after the calibration. The spec asks for two obli
 
 The architect proposed a bitmap-backed structural check (the same pattern that worked for `quorum_count`) and a pigeonhole-via-contradiction proof of the safety lemma. The design note ended in a nine-item sub-task list, ordered easiest to hardest. The implementer worked through it in six narrow iterations: skeleton, cursor bounds, bitmap abstraction invariant, pairwise distinctness, helpers lifted from `quorum_count`, then the safety lemma. Each attempt scoped to one sub-task. The final attempt landed `12 verified, 0 errors` with the pigeonhole step expressed as `if !(exists honest h) { assert(false) }`: the negated existential turns into a universal, which implies a subset relation between the certificate's voters and the Byzantine set, which closes against the threshold by cardinality.
 
-The reviewer's APPROVE noted the same pattern recurring across exercises and flagged it for the architect's playbook. Cross-exercise memory in `AGENTS.md` already contained the universe-size lemma pattern from `quorum_count`; the architect for `quorum_cert` lifted it directly. Each exercise's findings make the next one cheaper. The full per-attempt history and reviewer audit live in [`logs/quorum_cert/`](https://github.com/ranjithkannank/verus-calibration/tree/main/logs/quorum_cert), and the verified module sits at [`exercises/quorum_cert.rs`](https://github.com/ranjithkannank/verus-calibration/blob/main/exercises/quorum_cert.rs). A [dedicated follow-up post](https://ranjithkannan.com/2026/05/16/verified-byzantine-quorum-certificate/) covers the proof structure, the pigeonhole-by-contradiction pattern, and the BFT-path roadmap in more depth.
+The reviewer's APPROVE noted the same pattern recurring across exercises and flagged it for the architect's playbook. Cross-exercise memory in `AGENTS.md` already contained the universe-size lemma pattern from `quorum_count`; the architect for `quorum_cert` lifted it directly. Each exercise's findings make the next one cheaper.
+
+Three patterns surfaced in this run and went into the playbook. The first is **pigeonhole-via-contradiction**: when the goal is "some honest member exists in this set," wrap the negation in an `if !(exists ...) { ... assert(false); }` block.
+
+```rust
+if !(exists|h: NodeId| voters(qc).contains(h) && !byzantine.contains(h)) {
+    // negation gives a universal: forall h. !(P(h))
+    // turn it into a subset relation between voters(qc) and byzantine
+    // apply lemma_len_subset to get |voters(qc)| <= |byzantine|
+    // arithmetic contradiction with has_quorum and the n > 3f assumption
+    assert(false);
+}
+```
+
+The negated existential gives a `forall`, which an `assert forall ... implies ... by { }` block can convert into a subset relation. Combined with `vstd::set_lib::lemma_len_subset`, the cardinality contradiction closes. This pattern recurs in any proof shape where the conclusion is "some element exists with property P" and the hypothesis bounds cardinalities.
+
+The second is **`lemma_fundamental_div_mod` for threshold arithmetic**. Verus's `nonlinear_arith` discharge does not know the basic euclidean identity `x == d * (x / d) + (x % d)`. The library lemma `vstd::arithmetic::div_mod::lemma_fundamental_div_mod(x, d)` provides it as an explicit primitive. Any reasoning that needs to bridge `(2*n)/3 + 1` to `n - byzantine.len()` style arguments will reach for this. The trick: pass `int`-typed arguments, then bridge to `nat`.
+
+The third is **`lemma_len_subset` requires the superset finite, not the subset**. The signature is `lemma_len_subset(s1, s2) requires s1.subset_of(s2) && s2.finite() ensures s1.finite() && s1.len() <= s2.len()`. The lemma both lifts finiteness from a known-finite universe set down to an abstract `voters(qc)` set, and provides the cardinality bound. Putting the finiteness hypothesis on the wrong set is the most common usage mistake.
+
+The full per-attempt history and reviewer audit live in [`logs/quorum_cert/`](https://github.com/ranjithkannank/verus-calibration/tree/main/logs/quorum_cert), and the verified module sits at [`exercises/quorum_cert.rs`](https://github.com/ranjithkannank/verus-calibration/blob/main/exercises/quorum_cert.rs).
 
 ### ft_midpoint
 
