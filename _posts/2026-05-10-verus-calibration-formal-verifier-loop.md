@@ -11,13 +11,13 @@ related:
   - /2026/05/17/verified-byzantine-tolerant-sensor-fusion/
 ---
 
-An autonomous coding loop that cannot satisfy its feedback signal except by being correct turns out to be a useful construct. This post is what happens when we wire one to a formal verifier and ask it to prove six non-trivial things.
+An autonomous coding loop that cannot satisfy its feedback signal except by being correct turns out to be a useful construct. This post is what happens when we wire one to a formal verifier and ask it to prove twelve non-trivial things.
 
 The previous four posts in this series tightened the feedback signal that an autonomous coding loop runs against. First plain tests. Then [mutation testing](https://ranjithkannan.com/2026/04/19/pit-mutation-testing-ralph-loop/), to check that the tests caught real bugs. Then a [separate auditor](https://ranjithkannan.com/2026/04/23/final-validator-ralph-loop/), so the loop could not grade itself. Then [integration contracts](https://ranjithkannan.com/2026/04/27/integration-test-contracts/), to close the gap between green tests and observable correctness. Each step closed a hole through which a wrong loop could still pass.
 
 A formal verifier is the limit of that progression. It is a feedback signal the agent cannot satisfy except by either weakening the specification or actually being correct. The methodology in this post is the rule that closes the first path: no spec weakening, audited at two boundaries, on every commit. The empirical question is whether the loop can still produce verified code under that constraint.
 
-We picked Verus, because it operates on real Rust rather than on a custom language. We picked six exercises of increasing difficulty: a sorted binary search, a fixed-capacity append-only log with a frame property, a Byzantine quorum check whose spec talks about mathematical set cardinality but whose implementation has to walk a `Vec`, a single-module quorum certificate with a safety lemma, and two Byzantine-tolerant sensor-fusion algorithms (fault-tolerant midpoint and Marzullo's interval algorithm). The first two are textbook. The third is where the abstraction-to-implementation gap shows up. The fourth is the first BFT-path artifact. The fifth and sixth apply the BFT machinery to fault-tolerant sensor agreement.
+We picked Verus, because it operates on real Rust rather than on a custom language. We picked twelve exercises of increasing difficulty. The first six are a calibration set of standalone algorithmic exercises: a sorted binary search, a fixed-capacity append-only log with a frame property, a Byzantine quorum check whose spec talks about mathematical set cardinality but whose implementation has to walk a `Vec`, a single-module quorum certificate with a safety lemma, and two Byzantine-tolerant sensor-fusion algorithms (fault-tolerant midpoint and Marzullo's interval algorithm). The next three stress the harness on multi-module Verus. The last three compose the BFT primitives at increasing levels of trust-boundary integration, with the final exercise doubling as a deliberate test of whether the methodology supports proof discovery and not only proof execution.
 
 Everything described here lives at <https://github.com/ranjithkannank/verus-calibration>. The per-section links below point at the exact files.
 
@@ -99,7 +99,7 @@ done <<< "$frozen"
 
 **Capability boundary: a Claude Code tool whitelist.** Each `claude -p` call passes a role-scoped `--allowedTools` list and a universal `--disallowedTools` deny set. The deny set includes `WebFetch`, `WebSearch`, `Task` (no sub-agent fan-out), bash patterns for `rm`, `git push/reset/rebase/checkout/restore/config`, `*--no-verify*` so the agent cannot bypass the hook, `curl/wget/ssh`, `brew/npm/pip`, `sudo`. The architect gets only the tools it needs to write a design note. The reviewer does not get `Edit`.
 
-To state what this is not: it is not process isolation, it is not a network namespace, and a deliberately adversarial agent could find paths around it. The agents in this experiment are not adversarial. The boundary's job is to make it impossible for an honest worker to cheat accidentally. To silently weaken a spec because the verifier complained, or to slip an `assume` past the reviewer because it was tired. That boundary held across all six exercises.
+To state what this is not: it is not process isolation, it is not a network namespace, and a deliberately adversarial agent could find paths around it. The agents in this experiment are not adversarial. The boundary's job is to make it impossible for an honest worker to cheat accidentally. To silently weaken a spec because the verifier complained, or to slip an `assume` past the reviewer because it was tired. That boundary held across all twelve exercises.
 
 ## What happened
 
@@ -111,6 +111,12 @@ To state what this is not: it is not process isolation, it is not a network name
 | quorum_cert      | DONE   | 6                  | First BFT-shaped exercise. Six narrow iterations through the architect's sub-task list. Pigeonhole-via-contradiction proof of a quorum certificate's honest-voter guarantee. |
 | ft_midpoint      | DONE   | 7                  | First sensor-fusion artifact. Brute-force scan with inclusion-exclusion proof. |
 | marzullo         | DONE   | 1 (post re-freeze) | Interval generalization. Operator-intervention case: the loop refused to verify and surfaced a missing Helly-1D precondition. |
+| cross_module_counter | DONE | 1               | First multi-module exercise. Nested `mod` blocks inside one `verus!{}`. Closed-spec vocabulary across the module boundary. |
+| counter_multifile    | DONE | 1               | First multi-file exercise. Same algorithm, sibling-file layout. Tooling test for path whitelist and exercise-name derivation. |
+| counter_producer     | DONE | 1               | First cross-module composition. Producer's loop invariant carries facts the counter doesn't expose. |
+| sensor_poll          | DONE | 1               | First composition of BFT primitives. One-line projection lemma bridges marzullo's frame to the caller's frame. |
+| sensor_poll_signed   | DONE | 1               | Adds the cryptographic trust boundary from `quorum_cert` at the spec layer. |
+| sensor_poll_honest   | DONE | 1               | Deliberate discovery test. Design note omits lemma names; agent reuses inclusion-exclusion from the `ft_midpoint` playbook entry. |
 
 ### binary_search
 
@@ -260,7 +266,7 @@ This was the second methodology-grade signal in the same shape as bounded_log: t
 
 ## What the loop got right
 
-Five claims we are willing to defend from this run.
+Seven claims we are willing to defend from this run.
 
 **The no-spec-weakening rule held under pressure.** Both the mechanical hook and the semantic reviewer caught real violations. The hook caught a body-content modification on bounded_log that no other rule matched. The reviewer caught a spec-shape modification that the hook missed because its check is keyword-prefix only. Two layers that fail differently are the boundary. One layer alone was not enough.
 
@@ -272,6 +278,10 @@ Five claims we are willing to defend from this run.
 
 **Architect produces a sub-task list as part of the design.** Every design note ends with a numbered list of sub-tasks, ordered easiest to hardest, each small enough to land in one edit-verus-iterate cycle. The implementer reads this list and works through it in order. The list is what makes the per-call scoping concrete: "scope to the smallest unfinished sub-task" means something specific because the architect listed them.
 
+**Pre-spec verification via operator-authored witness files.** Before freezing a spec, the operator writes a reference implementation in `<name>_witness.rs` carrying the same spec block, then runs `ralph/check-spec.sh`. If the witness verifies under Verus with no cheat tokens, the spec admits a model and the freeze is safe; if verus rejects it, the operator fixes the spec (or the witness) before the agent loop ever starts. Two of the calibration exercises required mid-run re-freezes: `bounded_log` for a Verus syntax migration, `marzullo` for the missing Helly-1D precondition. Both held the methodology but burned agent cycles on bugs that were ultimately in operator-authored input. The witness check catches that class at operator time. An empirical negative test in [`scripts/test-witness-catches-bad-spec.sh`](https://github.com/ranjithkannank/verus-calibration/blob/main/scripts/test-witness-catches-bad-spec.sh) strips the Helly-1D precondition from a copy of the marzullo witness and confirms verus rejects it.
+
+**A deliberate discovery test on the architect-execution caveat.** Every 1-attempt success since `marzullo` carried the same caveat: the design note pre-named the load-bearing proof construct, so the agent executed a designed proof rather than discovering one. Methodology that only handles executing pre-designed proofs is a much narrower claim than methodology that supports discovery. `sensor_poll_honest` was set up specifically to test the discovery half. Its design note states the proof obligation and the informal mathematical content but deliberately omits the supporting lemmas, the helper-set constructions, the trigger annotations, and the sub-proof structure. The agent verified in one attempt and introduced a new helper lemma using inclusion-exclusion that it recognised from `ft_midpoint`'s playbook entry, a different exercise with a different proof obligation but the same proof family. One data point on one proof family. It moves the designed-vs-discovered axis from "untested, plausible caveat" to "tested once, supports discovery within an established family." Whether the methodology supports discovery on a proof family the playbook does not already document is a separate test on a different exercise.
+
 ## What the loop got wrong
 
 Three honest shortcomings worth flagging.
@@ -280,7 +290,7 @@ Three honest shortcomings worth flagging.
 
 **The orchestrator used to treat every non-zero claude exit code as verus-failed.** A rate-limited response, a budget cap firing, a network blip, an invocation error: all produced the same exit code and the loop would try the next iteration against the same transient problem. The first quorum_count run burned 27 rate-limited iterations before its outer ceiling fired. The orchestrator now classifies failures by grepping the iteration log against known signatures and exits cleanly on infrastructure failures rather than churning. Tests in [`ralph/test-classify-failure.sh`](https://github.com/ranjithkannank/verus-calibration/blob/main/ralph/test-classify-failure.sh).
 
-**Six exercises is not a benchmark.** The vericoding paper has 12,504 specifications. We have six. The generalizations we are comfortable drawing are at the level of "this failure mode exists" or "this rule survived this pressure," not "success rate equals X percent." Sample size six is sample size six.
+**Twelve exercises is not a benchmark.** The vericoding paper has 12,504 specifications. We have twelve. The generalizations we are comfortable drawing are at the level of "this failure mode exists" or "this rule survived this pressure," not "success rate equals X percent." Sample size twelve is sample size twelve.
 
 ## Where this fits
 
@@ -298,7 +308,7 @@ After the Microsoft work in particular, the claim worth defending is narrower th
 
 There is also a second contribution worth naming: the operator-intervention case on bounded_log. Most published vericoding results either succeed silently or fail silently. The loop's behavior on the bounded_log conflict, where the agent refused to cheat in either direction, articulated the constraint, named the empowered role, and stopped, is the kind of structured-failure output a trustworthy methodology should produce. A single-shot prompt would either silently apply `final(self)` or silently fail. This run surfaced the conflict, blamed the right party (the operator), and waited.
 
-The next rung is multi-module Verus code with cross-module invariants. The first single-module BFT primitives are in the repo: a verified quorum certificate with its safety lemma (`quorum_cert`), and two Byzantine-tolerant sensor-fusion algorithms (`ft_midpoint` and `marzullo`). The multi-module step is the next concrete artifact on the path. Drawing tasks from VeruSAGE-Bench so the results are comparable to existing published numbers, with AutoVerus and VeruSAGE as baselines, is the obvious benchmark direction once the multi-module harness is built.
+The multi-module step is now done at the harness level: three exercises (`cross_module_counter`, `counter_multifile`, `counter_producer`) verified first-attempt under the same loop, with small extensions to the path whitelist and the spec-preservation derivation. Three further exercises (`sensor_poll`, `sensor_poll_signed`, `sensor_poll_honest`) compose the BFT primitives at increasing levels of trust-boundary integration; the last is the deliberate discovery test described above. None of the composition exercises import the primitives as crates yet, they re-implement them as sibling modules, and `BACKLOG.md` carries the restructure-as-importable-crates item. Drawing tasks from VeruSAGE-Bench so the results are comparable to existing published numbers, with AutoVerus and VeruSAGE as baselines, is still the obvious benchmark direction at the multi-module scale.
 
 ## Reproducing
 
