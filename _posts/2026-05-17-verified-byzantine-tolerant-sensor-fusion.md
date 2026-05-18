@@ -11,7 +11,7 @@ Modern aircraft, drones, and increasingly autonomous vehicles all rely on multip
 
 The flight computer has to take these readings and produce a single trusted answer. "Three accelerometers say the aircraft is pitching up; one says it isn't" — what does the autopilot do? The textbook answer is fault-tolerant sensor fusion: an algorithm whose output is guaranteed safe as long as at most a known number of inputs are broken or lying.
 
-This post is about two such algorithms, implemented in Rust with formal proofs of correctness, produced through an autonomous coding loop. Both verified end-to-end. One of them surfaced a bug in our own specification that we wouldn't have caught without the loop's strict refusal to cheat. That's the piece worth reading for.
+This post is about two such algorithms, implemented in Rust with formal proofs of correctness, and three exercises that compose them into a verified Byzantine-tolerant sensor poll. All five were produced through an autonomous coding loop. One of the algorithm exercises surfaced a bug in our own specification that we wouldn't have caught without the loop's strict refusal to cheat. The third composition exercise was set up as a deliberate test of whether the loop can discover proofs rather than only execute pre-designed ones; it passed, and the result subsequently survived an audit re-run with the operator-authored witness file hidden. Those are the pieces worth reading for.
 
 ## The problem in plain English
 
@@ -133,6 +133,73 @@ This was the second time the methodology surfaced an operator-authored specifica
 
 In a sample of six verified exercises, two of them required operator intervention to fix specification bugs that surfaced through the loop's refusal to cheat. That's a meaningful rate. It's also, on reflection, exactly the rate you'd want: the loop is doing the specification-authoring work the operator skipped, by trying to verify it.
 
+## Composing the primitives
+
+The three verified primitives — `quorum_cert`, `ft_midpoint`, `marzullo` — are uncomposed. A verified Byzantine-tolerant sensor poll that authenticates signed sensor reports via the quorum-style check and combines the authenticated readings via Marzullo would be the first end-to-end system on the path. We built three composition exercises to take it on, each adding one piece of what that real system would need. The first demonstrated the composition regime. The second threaded the cryptographic trust boundary through the contract. The third strengthened the postcondition with an honest-voter guarantee and ran as a deliberate test of the methodology itself. All three verified in one attempt each.
+
+### `sensor_poll`
+
+A new exercise in a multi-file directory layout:
+
+```text
+exercises/sensor_poll/
+    main.rs      # mod fusion; mod auth; poll(reports, n, f)
+    fusion.rs    # marzullo
+    auth.rs      # SensorReport + distinct_sensors + check_distinct
+    design.md
+```
+
+The `fusion` module is a verbatim port of the verified `marzullo` exercise: same types, same uninterp `correct_at` trust boundary, same `open spec fn` definitions, same algorithm, same proof helpers. The `auth` module defines a `SensorReport` carrying a `sensor_id` and an `interval`, plus a `distinct_sensors` predicate and a `check_distinct` exec function that decides it. The implementation is the bitmap-backed single-pass pattern from `quorum_cert::verify_qc_structure`, simplified to one vector and one threshold.
+
+The `main` module defines `poll(reports, n, f) -> Option<Interval>`. Call `check_distinct`; if false, return `None`. Otherwise project each `SensorReport`'s `interval` field into a fresh `Vec<Interval>`. Call `marzullo` on that. Use `choose` to extract the witness point from `marzullo`'s existential, then a one-line projection lemma to bridge the frame.
+
+The projection lemma is the load-bearing piece. Marzullo's postcondition is stated in terms of `intervals_containing(intervals@, p)`, a set of indices into the projected `Seq<Interval>`. The caller of `poll` wants a fact about `reports_containing(reports@, p)`, a set of indices into the original `Seq<SensorReport>`. The two sets are extensionally equal because the projection just pulls out the `interval` field; the membership predicates align after substitution. Verus closes the equality with `=~=` alone:
+
+```rust
+proof fn lemma_reports_eq_intervals_containing(
+    reports: Seq<SensorReport>, p: Reading)
+    ensures
+        reports_containing(reports, p)
+            =~= intervals_containing(project_intervals(reports), p),
+{
+    // body intentionally empty
+}
+```
+
+That empty-body lemma is the entire composition seam. Everything else is plumbing. The agent verified the exercise on the first attempt: 16 verified, 0 errors. Reviewer APPROVE.
+
+### `sensor_poll_signed`
+
+The first exercise's `auth` module ported only the bitmap-distinct half of `quorum_cert`. "Distinct sensor IDs" is a much weaker property than "valid signatures over signed reports." The second exercise closed that gap at the contract layer.
+
+`fusion.rs` and the structural half of `auth.rs` are unchanged. `auth.rs` gains the cryptographic trust boundary lifted from `quorum_cert`: `Hash`, `PubKey`, `Signature` type aliases; three uninterpreted spec predicates (`pk_of`, `signature_valid`, `report_msg`); two open spec predicates (`all_signatures_valid` and a `valid_report_bundle` conjunction of distinct-and-signed); and a `sig: Signature` field on `SensorReport`. `poll`'s precondition gains `all_signatures_valid(reports@)`; its `Some`-branch ensures gains `valid_report_bundle(reports@)`.
+
+What the exec layer does not gain: a signature-verification function. `signature_valid` stays opaque, the same way `quorum_cert.rs` left it. A real deployment would connect it to a vetted external crypto library via a thin exec wrapper outside the repo. The trust boundary in this exercise lives entirely at the spec layer: the caller of `poll` is responsible for having verified signatures upstream, the way a real Byzantine protocol receives already-signed messages from its network stack. The composition theorem now states that `poll` only returns `Some` when the inputs constitute a valid signed bundle, which is a real strengthening even though no exec-layer signature check happens inside the exercise.
+
+The implementer's new work was a one-line conjunction: `assert(valid_report_bundle(reports@));` after `check_distinct` returns true. `distinct_sensors(reports@)` is in scope from `check_distinct`'s ensures, and `all_signatures_valid(reports@)` is in scope from the precondition. Verus joins them. The rest of `poll`'s body is byte-equivalent to the first exercise's. One attempt, 16 verified, 0 errors, reviewer APPROVE.
+
+### `sensor_poll_honest`
+
+The third exercise pushed harder. The first two carried a caveat: the design note pre-named the load-bearing proof construct, so the agent executed a designed proof rather than discovering one. Methodology that handles execution of designed proofs is a narrower claim than methodology that supports discovery. This exercise was set up specifically to test the discovery half.
+
+Its `fusion.rs` and `auth.rs` are byte-identical to `sensor_poll_signed`. Its `main.rs` adds one conjunct to `poll`'s `Some`-branch ensures:
+
+```rust
+&&& exists|p: Reading, k: int|
+    interval.lo <= p && p <= interval.hi
+    && 0 <= k < reports.len()
+    && correct_at(k)
+    && point_in_interval(p, reports[k].interval)
+```
+
+There exists a point `p` in the returned interval AND an index `k` such that sensor `k` is honest (not Byzantine) AND its reported interval contains `p`. This is the BFT-meaningful strengthening: the signature trust boundary is now load-bearing in the proof, not just threaded through the contract. The returned interval is provably backed by at least one honest sensor's report.
+
+The design note for this exercise was deliberately incomplete. It stated the obligation. It stated the informal mathematical content: that `n - f` supporters and `n - f` correct sensors, both subsets of an `n`-element universe, must overlap, and that with `n ≥ 2f + 1` the overlap has at least one element. It did not name the supporting lemmas. It did not name the helper-set constructions. It did not name the trigger annotations. It did not name the sub-proof structure. The architect's playbook in `AGENTS.md` does name those constructs, including the inclusion-exclusion identity `lemma_set_intersect_union_lens` and the universe-finite bridge via `lemma_int_range` and `lemma_len_subset`, but those entries sit under `ft_midpoint`, a different exercise with a different proof obligation in the same proof family.
+
+The agent verified in one attempt. Its proof introduced a new helper lemma `lemma_honest_supporter_exists`, establishing both index sets as subsets of `[0, n)` via `lemma_int_range` and `lemma_len_subset`, applying `lemma_set_intersect_union_lens` to get `|s ∪ c| + |s ∩ c| == |s| + |c|`, bounding `|s ∪ c| ≤ n`, concluding `|s ∩ c| ≥ 2(n − f) − n ≥ 1`, then using `axiom_is_empty_len0` / `axiom_is_empty` to extract the witness from the non-empty intersection. The lemma's name, signature, proof structure, choice of helper-set construction, and specific use of the inclusion-exclusion identity were all the agent's. The design note named none of them. The agent recognised that the proof family from `ft_midpoint`'s playbook entry applied to a new situation in a different exercise on a different obligation, and reused it.
+
+One data point on one proof family. It moves the designed-vs-discovered axis from "untested, plausible caveat" to "tested once, supports discovery within an established family." The next move on the methodology axis, testing whether the loop can discover proofs on a family the playbook does not document at all, is a separate single-function exercise (`swap_multiset`) covered in the [calibration post](https://ranjithkannan.com/2026/05/10/verus-calibration-formal-verifier-loop/), which also tells the find-fix-audit story behind hardening the agent's witness-access permissions for these tests.
+
 ## What compounded across exercises
 
 Each verified exercise added something to a shared playbook the next exercise could pick up.
@@ -145,32 +212,38 @@ Marzullo produced a third: argmax-plus-Helly-1D for constructive existence. When
 
 The pattern is more general than the specific lemmas. Each exercise's architect could draw on the previous exercises' designs and verified machinery. The implementer didn't need to re-derive proof shapes that had already been worked out elsewhere; it could lift them. After six exercises the architect's role file has a long enough playbook that the marzullo restart converged in one attempt, with the implementer reusing scaffolding from ft_midpoint and from the prior (blocked) marzullo run.
 
+The discovery question the playbook raised, whether the agent could recognise a known proof family and apply it to a new obligation without the architect spelling out the construct, got a clearer answer through `sensor_poll_honest`. The one-attempt verification of the honest-voter clause introduced a new helper lemma using inclusion-exclusion recognised from `ft_midpoint`'s playbook entry. That was one data point on one proof family. A second, structurally different test on a different proof family (`counter_filler`, in the multi-module track covered in the [calibration post](https://ranjithkannan.com/2026/05/10/verus-calibration-formal-verifier-loop/)) produced the same shape of result: one attempt, a new invariant derived from a different playbook entry, no thrashing. Both were subsequently audited under a tool whitelist that explicitly denies the agent reading the operator-authored witness file, with each exercise's prior playbook summary stripped from `AGENTS.md`. Both audits passed in one attempt with solutions structurally identical to the originals. Two data points, two distinct proof families, audit-confirmed. The methodology supports discovery within an established proof family. Whether it supports *invention* on a family the playbook does not document at all is a different test, also covered in the calibration post.
+
 ## Honest limitations
 
-Six verified exercises is not a benchmark. The Verus vericoding research papers operate on hundreds to thousands of tasks; six lets us observe failure modes, not measure success rates.
+Nine verified exercises is not a benchmark. The Verus vericoding research papers operate on hundreds to thousands of tasks; nine lets us observe failure modes, not measure success rates.
 
-Every exercise so far is single-module. The next regime, multi-module Verus code with cross-module invariants, which is where real systems live, has not been stressed through this harness. We expect new failure modes when we get there.
+Every primitive-track exercise (binary_search through marzullo) is single-module. The composition track is multi-module via Rust's standard `mod` mechanism, three siblings inside one Verus crate. That covers cross-module reasoning within a single crate; it does not cover genuinely cross-crate dependencies (one Verus crate importing another's `pub` interface), which is the regime real systems live in. We expect new failure modes when we get there.
 
-The cryptographic trust boundary in the quorum certificate exercise is uninterpreted. The implementer cannot provide a body; the verifier reasons over all possible meanings of "this signature is valid." A real deployment connects this to a vetted crypto library through a thin wrapper that supplies the assumed behaviour. We verified the BFT-layer reasoning, not the cryptography underneath.
+The cryptographic trust boundary in the quorum certificate exercise is uninterpreted. The implementer cannot provide a body; the verifier reasons over all possible meanings of "this signature is valid." A real deployment connects this to a vetted crypto library through a thin wrapper that supplies the assumed behaviour. We verified the BFT-layer reasoning, not the cryptography underneath. The composition exercises inherit this boundary unchanged.
 
-Two of the six exercises required operator intervention to fix specification bugs. Both were caught and fixed with one targeted edit, but the underlying issue, that operator-authored specifications can be wrong, is real. A future methodology refinement worth considering is pre-verifying that a specification admits a satisfying model, before freezing it. We didn't do this and paid the cost of the two intervention rounds. The cost was bounded (the diagnostic output let us fix it surgically), but it's still cost we could have avoided.
+Two of the six primitive-track exercises required operator intervention to fix specification bugs. Both were caught and fixed with one targeted edit, but the underlying issue, that operator-authored specifications can be wrong, is real. The methodology refinement that catches this class at operator time, pre-verifying that a specification admits a satisfying model via an operator-authored witness file, has since been added (see the [calibration post](https://ranjithkannan.com/2026/05/10/verus-calibration-formal-verifier-loop/) for the find-fix-audit story). None of the composition exercises needed it; their specs admitted models cleanly on first authoring.
 
 One harness bug surfaced and was fixed: a stuck-state loop where the escalation marker file couldn't be deleted (the agent's tool whitelist denied `rm`) and the state classifier treated an empty file as still-escalated. The orchestrator now cleans up the marker explicitly and the state classifier uses a non-empty check. This is the kind of refinement the autonomous-loop literature doesn't typically discuss; the fix is local and small, but the failure mode was non-obvious and only became visible after the first escalation in any exercise.
 
-## Where this is heading
+The composition exercises do not import the verified primitives as crate dependencies. Each existing exercise compiles as its own Verus crate via `verus <file>.rs --crate-type=lib`; there is no `Cargo.toml`, no workspace, no dependency arrows between exercises. All three composition exercises *port* the primitives, re-implementing them as sibling modules inside their own crate. From a verification standpoint the proofs are real; from a "reuse the verified artifacts" standpoint we did not reuse them as artifacts, we copied their source. Restructuring the existing exercises as importable Verus crates is in `BACKLOG.md`.
 
-The three verified artifacts are publicly usable as-is. A working engineer building a real BFT-tolerant system can read the quorum certificate library and learn the structural reasoning their own consensus implementation needs to satisfy. A working engineer building a real sensor-fusion system can read the fault-tolerant midpoint or Marzullo implementation and pick up a reference implementation with a machine-checked correctness proof attached. The code is MIT.
+The composition exercises also do not push signature verification into the exec layer. `sensor_poll_signed` and `sensor_poll_honest` carry the `signature_valid` uninterp predicate and reason about it at the spec layer. Neither exercise has an exec function that walks each report and calls a cryptographic verifier; that step is left to the caller, and ultimately to an external library connected via an `assume_specification` outside the repo, the way `quorum_cert.rs` is structured. Adding the exec-layer trust boundary is another item in BACKLOG.
 
-The next concrete artifacts on the path are a verified Byzantine agreement primitive (deferred for now; see [`BACKLOG.md`](https://github.com/ranjithkannank/verus-calibration/blob/main/BACKLOG.md) in the repo for why) and a hardware-deployed demonstration of the sensor-fusion algorithms running on dissimilar redundant boards under live fault injection. The hardware demonstration is the first step that moves beyond pure verification work into real-time performance and certification considerations. The verified primitives are the input to that step; the hardware bring-up and worst-case-execution-time measurements are the new content.
+The composition exercises do not use `ft_midpoint`. All three pick `marzullo` (intervals) over `ft_midpoint` (scalar readings). One choice; we made it for tractability. The verified `ft_midpoint` sits unused in the composition track.
 
-The broader thesis the work is in service of: formal verification of Byzantine-tolerant systems for safety-critical applications has historically been too expensive to compete with the legacy verified-once-and-grandfathered-in protocols actually deployed in production avionics. If the methodology we've been building can meaningfully lower that cost, new sensor-fusion designs and new redundancy architectures become tractable to verify rather than re-certify against decades-old assumptions. We're not there yet. Each artifact is a step.
+And the three composition exercises are not "a small system." They are three verified end-to-end functions, each building on the last. A system would have multiple flows, a configuration surface, integration points beyond a single composition call, probably real I/O. What we have is a chain of three functions whose postconditions depend on two other functions' postconditions via a projection lemma and, in the third exercise, an inclusion-exclusion lemma. That is composition reasoning, demonstrated; it is not a system, claimed.
 
 ## Where to find everything
 
 - Repo: <https://github.com/ranjithkannank/verus-calibration>
-- The three verified exercises:
+- The verified primitives:
   - [`exercises/quorum_cert.rs`](https://github.com/ranjithkannank/verus-calibration/blob/main/exercises/quorum_cert.rs)
   - [`exercises/ft_midpoint.rs`](https://github.com/ranjithkannank/verus-calibration/blob/main/exercises/ft_midpoint.rs)
   - [`exercises/marzullo.rs`](https://github.com/ranjithkannank/verus-calibration/blob/main/exercises/marzullo.rs)
-- The methodology described in the prior post: <https://ranjithkannan.com/2026/05/10/verus-calibration-formal-verifier-loop/>
+- The composition exercises:
+  - [`exercises/sensor_poll/`](https://github.com/ranjithkannank/verus-calibration/tree/main/exercises/sensor_poll)
+  - [`exercises/sensor_poll_signed/`](https://github.com/ranjithkannank/verus-calibration/tree/main/exercises/sensor_poll_signed)
+  - [`exercises/sensor_poll_honest/`](https://github.com/ranjithkannank/verus-calibration/tree/main/exercises/sensor_poll_honest)
+- The methodology, witness-access hardening, and find-fix-audit story: <https://ranjithkannan.com/2026/05/10/verus-calibration-formal-verifier-loop/>
 - The marzullo operator-intervention case in full detail, including the constructive counterexample and the architect's three revisions: the prior frozen tag's `logs/marzullo/blocked.md`, preserved in git history at commit [`c859e6f`](https://github.com/ranjithkannank/verus-calibration/commit/c859e6f).
