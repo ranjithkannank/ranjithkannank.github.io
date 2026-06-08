@@ -8,7 +8,9 @@ related:
   - /2026/05/27/three-systems-one-loop/
 ---
 
-A few weeks ago I ran `kv_store_v1` through the system-layer loop I'd been building. The setup was deliberately simple: a `BTreeMap<u64, u64>` reference implementation as the deterministic oracle, three proptest properties (random-operation equivalence against the oracle, empty-state consistency, put-then-get round-trip), and a stubbed SUT for the loop to fill in.
+For the past several months I've been building an autonomous coding loop that wires LLM agents to formal feedback signals — Verus at the component layer, a deterministic oracle at the system layer. The work lives in two open-source repositories with sixteen verified component exercises and three runnable end-to-end systems between them. A few weeks ago I ran one of those systems through the system-layer half of the loop — a small in-memory key-value store I'd been calling `kv_store_v1`. What it surfaced is the cleanest illustration of what I'm building toward and what's still missing.
+
+The setup was deliberately simple: a `BTreeMap<u64, u64>` reference implementation as the deterministic oracle, three proptest properties (random-operation equivalence against the oracle, empty-state consistency, put-then-get round-trip), and a stubbed SUT for the loop to fill in.
 
 The loop's `system_designer` agent wrote a one-item plan: wrap a `BTreeMap`. The `integration_implementer` agent executed in a single attempt. The SUT it produced looked like this:
 
