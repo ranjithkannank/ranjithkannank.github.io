@@ -24,58 +24,7 @@ Honest scope above the fold:
 
 Everything described here lives at <https://github.com/ranjithkannank/bft_autotune>. The per-section links point at exact files.
 
-## The system layer's feedback signal
-
-Brooker's claim has a specific shape. When an agent producing code can compare its output to a deterministic reference bit-for-bit, the agent's job collapses to "match the oracle." There is no judgement call about correctness; the comparison is mechanical. The verifier-versus-tests distinction at the component layer is the same distinction made one layer up. A proof is a deterministic verdict, and so is "outputs match the oracle on the input set."
-
-The system-layer oracle in `bft_autotune` is a single-node, faultless reference implementation: trivially correct, cheap to evaluate, written by the operator before the loop runs. For sensor fusion the oracle is a 20-line interval intersection. For stop-and-wait transport it is a perfect-channel `OracleSender` / `OracleReceiver` pair that records every `send(msg)` and returns the messages verbatim in order. For the key-value store it is a `BTreeMap<u64, u64>` wrapper. The SUT must match the oracle on faultless inputs and satisfy verified-component invariants on adversarially-perturbed inputs.
-
-This is Brooker's strong form applied at the system layer. The non-adversarial form may travel further on harder problems; for the three runs here, the deterministic form is achievable.
-
-## The two-tier architecture
-
-The system-layer loop has the same shape as the component-layer loop, with a different feedback signal:
-
-```
-   component layer (verus-calibration)
-   ───────────────────────────────────────────────────
-     architect ──► implementer ──► reviewer
-            verus is the feedback signal
-            proof or rejection
-   ───────────────────────────────────────────────────
-                       │
-                       ▼  verified components feed into
-                       │
-   ───────────────────────────────────────────────────
-   system layer (bft_autotune)
-     system_designer ──► integration_implementer ──► runner_auditor
-            cargo test against a deterministic oracle
-            is the feedback signal
-            APPROVE or REJECT
-   ───────────────────────────────────────────────────
-```
-
-Same three-role structure, fresh context per call, role-scoped tool whitelists, per-attempt commits. The framework scaffold (`AGENTS.md`, the three role definitions, the orchestrator, the first regen target) landed in commit [`c4b37f1`](https://github.com/ranjithkannank/bft_autotune/commit/c4b37f1).
-
-## The three boundaries, at the system layer
-
-Three boundaries with the same shape as the component-layer loop, scoped to the new layer's artifacts.
-
-**Content boundary.** The `runner_auditor`'s five-point checklist audits the diff against a `system-frozen-<system>` git tag. It confirms `src/oracle.rs` unchanged, existing property bodies in `src/proptest.rs` preserved verbatim, no test-disabling annotations (`#[ignore]`, `#[should_panic]` on existing tests, `catch_unwind` wrappers), no verification-bypass tokens (`assume!`, `external_body`, `assume_specification`, `unimplemented!()` in reachable positions), no property deletions.
-
-**Capability boundary.** Each `claude -p` call passes a role-scoped `--allowedTools` list and a universal `--disallowedTools` deny set. The `integration_implementer` can edit and `cargo test`; the `system_designer` cannot run cargo; the `runner_auditor` cannot edit code at all (its job is git-diff-based).
-
-**Operator-territory boundary.** `src/oracle.rs` and the existing property bodies in `src/proptest.rs` are operator territory. The orchestrator's `DISALLOWED_TOOLS` denies any agent `Edit(**/oracle.rs)` or `Write(**/oracle.rs)`; the property-body constraint is enforced by the auditor at audit time. `SYSTEM.md` is dynamic — written by the `system_designer` in THINK, revised on escalation — and is not part of the frozen spec.
-
-Honest: none of this is a sandbox. A motivated adversarial agent could find paths around it. As with the component-layer loop, the boundaries' job is to make it impossible for an honest worker to cheat accidentally.
-
-## The three roles
-
-Three [Claude Code subagents](https://github.com/ranjithkannank/bft_autotune/tree/main/.claude/agents), all on Opus 4.7.
-
-- **[system_designer](https://github.com/ranjithkannank/bft_autotune/blob/main/.claude/agents/system_designer.md).** Reads the operator-authored `oracle.rs`, `proptest.rs`, and `Cargo.toml`. Writes `SYSTEM.md`: architecture, what the SUT must do, what "deploy" means, open questions, and a numbered sub-task list ordered easiest to hardest. Does not see cargo output on the first pass.
-- **[integration_implementer](https://github.com/ranjithkannank/bft_autotune/blob/main/.claude/agents/integration_implementer.md).** One new attempt per call: edit `sut.rs` (and `faults.rs` if needed), run `cargo test --quiet`, log the result, commit. Escalates after three consecutive failures on the same property.
-- **[runner_auditor](https://github.com/ranjithkannank/bft_autotune/blob/main/.claude/agents/runner_auditor.md).** After cargo test exits 0, audits the diff against `system-frozen-<system>` using the five-point checklist. Does not check correctness; the proptest sweep already did.
+The system-layer loop has the same three-role shape as the component-layer loop, with a different feedback signal (`cargo test --quiet` against a property suite, instead of Verus). The roles are `system_designer`, `integration_implementer`, `runner_auditor`. The three boundaries are scoped to the system layer's artifacts: the content boundary diffs against a `system-frozen-<system>` tag and checks the five-point no-cheating checklist; the capability boundary is the per-role tool whitelist; the operator-territory boundary denies any agent edits to `src/oracle.rs` or the existing property bodies in `src/proptest.rs`. The framework scaffold landed in commit [`c4b37f1`](https://github.com/ranjithkannank/bft_autotune/commit/c4b37f1). The full architecture parallels the [calibration post](https://ranjithkannan.com/2026/05/10/verus-calibration-formal-verifier-loop/).
 
 ## First run — sensor_poll_v2
 
@@ -87,15 +36,13 @@ The interesting part is the reviewer-notes section of [`review.md`](https://gith
 
 > The author explicitly justifies the comparison-only choice ("no arithmetic on bounds, so arbitrary i64 inputs cannot overflow") which is exactly the overflow concern flagged in SYSTEM.md's open-questions section. The `n < 2*f + 1` guard short-circuits before the reduction, so empty input at `f=1` returns `None` rather than silently producing `[i64::MIN, i64::MAX]` — a sharper choice than the spec strictly required.
 
-Two design choices the audit calls out: comparison-only arithmetic in the `marzullo` intersect (no `hi - lo` subtraction, no overflow risk on arbitrary `i64` inputs) and a short-circuit on `n < 2f + 1` before the reduction. Both are sharper than the property bodies strictly demand. The properties pass on less careful implementations too; the agent picked the more careful path on the first attempt.
-
-The operator-written v1 made the same design choices. What v2 added was the rationale: v1's `marzullo` doc comment says nothing about overflow safety, v2's says "Comparison-only — no arithmetic on bounds, so arbitrary i64 inputs cannot overflow." The agent wrote the reasoning down — in the code comment and in `attempts.md`. A separate auditor on a fresh context, running only against the diff, noticed and called the rationale out. Reproducible quality with stated reasoning is a useful methodology signal: not "the loop catches what the operator missed" but "the loop produces work indistinguishable from a careful operator's, with the design rationale documented in places the operator's hand-written reference did not bother to write it down."
+Two design choices the audit calls out: comparison-only arithmetic in the `marzullo` intersect and a short-circuit on `n < 2f + 1` before the reduction. Both are sharper than the property bodies strictly demand; the agent picked the more careful path on the first attempt. The operator-written v1 made the same design choices, but v2's `marzullo` doc comment explicitly states "Comparison-only — no arithmetic on bounds, so arbitrary i64 inputs cannot overflow" where v1's says nothing about overflow safety. The agent wrote the reasoning down in the code comment and in `attempts.md`; a separate auditor on a fresh context called the rationale out. Reproducible quality with stated reasoning: the loop produces work indistinguishable from a careful operator's, with the design rationale documented in places the hand-written reference did not bother to write it down.
 
 ## Harness change between sensor_poll_v2 and tcp_v1
 
-Before the second system we made one harness change. The orchestrator now scopes each WORK iteration to exactly one sub-task from `SYSTEM.md`. After THINK, the `system_designer`'s sub-task list is parsed into `logs/<system>/subtasks.md` as a checklist; each WORK prompt names exactly one unchecked sub-task as the implementer's scope; the implementer marks it complete when (and only when) it is actually done. Multi-sub-task work in a single iteration is forbidden — fresh context per sub-task is the whole point.
+Before the second system we made one harness change. The orchestrator now scopes each WORK iteration to exactly one sub-task. After THINK, the `system_designer`'s sub-task list is parsed into `logs/<system>/subtasks.md` as a checklist; each WORK prompt names exactly one unchecked sub-task as the implementer's scope. Multi-sub-task work in a single iteration is forbidden — fresh context per sub-task is the whole point.
 
-The motivation was anticipated rather than discovered. `sensor_poll_v2` was small enough that the implementer could land all seven sub-tasks in a single pass. Anything stateful and adversary-driven would not be. With per-sub-task scoping, each iteration is bounded by the size of one sub-task, and the implementer's context window stops being a hidden constraint on system complexity. The change is itself a methodology contribution — the way to scale the system-layer loop to larger systems is to insist on one bite at a time. It landed in commit [`5c00a06`](https://github.com/ranjithkannank/bft_autotune/commit/5c00a06).
+`sensor_poll_v2` was small enough that the implementer could land all seven sub-tasks in a single pass; anything stateful and adversary-driven would not be. With per-sub-task scoping, the implementer's context window stops being a hidden constraint on system complexity. Commit [`5c00a06`](https://github.com/ranjithkannank/bft_autotune/commit/5c00a06).
 
 ## Second run — tcp_v1
 
@@ -131,11 +78,9 @@ In the current loop this observation is passive. The auditor writes it in `revie
 
 ## Where this fits
 
-The trust-ladder progression from the rest of the series: plain tests, then mutation testing, then a separate auditor, then integration contracts, then a formal verifier wired into the component-layer loop. Each step closed a hole through which a wrong loop could still pass. This post adds a different layer rather than a tighter feedback signal at the same layer. The system layer has its own three boundaries, its own three roles, its own feedback signal (oracle + cargo test). The component layer continues to operate underneath it; the system-layer SUTs consume the verified components (currently via ported plain-Rust copies; real `.rlib` consumption is later).
+The trust-ladder progression from the rest of the series adds a layer rather than a tighter signal at the same layer. The system layer has its own three boundaries, its own three roles, its own feedback signal. The system-layer SUTs consume the verified components (currently via ported plain-Rust copies; real `.rlib` consumption is later). The system layer is orthogonal to AutoVerus and VeruSAGE, which work at the component layer.
 
-The system layer is orthogonal to AutoVerus and VeruSAGE. Those systems work at the component layer — single-function and repository-scoped Verus tasks. The system layer is downstream of that work, not in competition with it. It consumes the verified components and adds a different kind of feedback signal where component-level proof is not available.
-
-Three threads on what comes next. The first is the spec-refinement direction — the `kv_store_v1` auditor's notes are the empirical opening for a `spec_critic` role that proposes property tightenings when the auditor surfaces a spec gap, and a closed loop where the methodology refines its own spec. That is the next post, with `kv_store_v2` as the case study. The second is real consumption of `verus-calibration`'s outputs as Cargo dependencies rather than ported source; substantively engineering, strengthens the "verified components" claim of the methodology. The third is the long-arc aerospace direction the project carries from `verus-calibration`'s sensor-fusion track: in-process channels → multi-process → multi-board dissimilar redundant triads. Multi-week per step, off the post's path, worth naming as the target.
+Three threads on what comes next. The spec-refinement direction — the `kv_store_v1` auditor's notes are the empirical opening for a `spec_critic` role and a closed loop where the methodology refines its own spec, with `kv_store_v2` as the case study; that is the next post. Real consumption of `verus-calibration`'s outputs as Cargo dependencies rather than ported source. And the long-arc aerospace direction: in-process channels → multi-process → multi-board dissimilar redundant triads.
 
 ## Reproducing
 
@@ -157,4 +102,4 @@ cd systems/kv_store_v1    && cargo test --quiet && cd ../..
 ./orchestrator/run-system.sh kv_store_v1
 ```
 
-The four `cargo test` commands let a reader confirm all four systems work locally in under a minute. Per-attempt commits, the design notes, and the audit reports are committed under `logs/<system>/` and `systems/<system>/`. Models are `claude-opus-4-7` for all three roles; the choice lives in `orchestrator/run-system.sh`. Each `system-frozen-<system>` tag marks the spec baseline the auditor diffs against.
+Per-attempt commits, design notes, and audit reports are under `logs/<system>/` and `systems/<system>/`. Models: `claude-opus-4-7` for all three roles. Each `system-frozen-<system>` tag marks the spec baseline the auditor diffs against.
