@@ -1,45 +1,45 @@
 ---
 layout: post
-title: "Verified Byzantine-Tolerant Sensor Fusion"
+title: "Verified Byzantine-Tolerant Value Agreement"
 date: 2026-05-17
 related:
   - /2026/04/10/multi-agent-tdd-loop/
   - /2026/05/10/verus-calibration-formal-verifier-loop/
 ---
 
-Modern aircraft, drones, and increasingly autonomous vehicles all rely on multiple redundant sensors to know what's happening around them. Three accelerometers, two GPS receivers, a stack of inertial reference units. Each sensor's reading is uncertain, and any sensor can fail. Some failures are silent (the sensor stops reporting); some are deceptive (the sensor reports a value that's just plausible enough not to be flagged). The deceptive case is the harder one. Distributed-systems research has carried the name "Byzantine" for it since Lamport, Shostak, and Pease coined it in 1982.
+Marzullo's algorithm comes from a 1983 PhD thesis on distributed clock synchronization. Keith Marzullo wanted to keep a set of computer clocks in sync when some clock sources might be unreliable or lying — silent, drifting, or actively reporting fictional times. Each source reports an interval `[lo, hi]` containing what it believes to be the true time; the algorithm fuses these intervals into a single trusted interval, tolerating up to `f` faulty sources out of `n` provided `n ≥ 2f + 1`. The algorithm became foundational to NTP, and to a broader family of Byzantine-tolerant value-agreement primitives: replica voting, source agreement, any setting where multiple noisy reports on a single underlying value have to be fused and some reports may be lying.
 
-The flight computer has to take these readings and produce a single trusted answer. "Three accelerometers say the aircraft is pitching up; one says it isn't" — what does the autopilot do? The textbook answer is fault-tolerant sensor fusion: an algorithm whose output is guaranteed safe as long as at most a known number of inputs are broken or lying.
+Distributed-systems research has carried the name "Byzantine" for the deceptive-failure case since Lamport, Shostak, and Pease coined it in 1982. The silent case is easier — a source that returns nothing is one a protocol can plan for. A source that returns a value plausible enough not to be flagged is harder, and that case is the one Byzantine fault tolerance is named after.
 
-This post is about two such algorithms, implemented in Rust with formal proofs of correctness, and three exercises that compose them into a verified Byzantine-tolerant sensor poll. All five were produced through an autonomous coding loop. One of the algorithm exercises surfaced a bug in our own specification that we wouldn't have caught without the loop's strict refusal to cheat. The third composition exercise was set up as a deliberate test of whether the loop can discover proofs rather than only execute pre-designed ones; it passed, and the result subsequently survived an audit re-run with the operator-authored witness file hidden. Those are the pieces worth reading for.
+This post is about two such algorithms, implemented in Rust with formal proofs of correctness, and three exercises that compose them into a verified Byzantine-tolerant value aggregator. All five were produced through an autonomous coding loop. One of the algorithm exercises surfaced a bug in our own specification that we wouldn't have caught without the loop's strict refusal to cheat. The third composition exercise was set up as a deliberate test of whether the loop can discover proofs rather than only execute pre-designed ones; it passed, and the result subsequently survived an audit re-run with the operator-authored witness file hidden. Those are the pieces worth reading for.
 
 ## The problem in plain English
 
 Forget about distributed systems for a moment. You have three thermometers in a room. Two read 71°F; one reads 100°F. What's the temperature? Probably 71°F, and the third thermometer is broken. You made that call without thinking, because you carry an implicit fault-tolerance assumption: at most one of the three is wrong.
 
-A flight computer makes the same kind of call, formally, dozens of times a second. Three altitude sensors, two GPS receivers, four inertial measurement units. Each sensor reports a value (or a range of values, allowing for its own uncertainty). The flight computer fuses them into a single trusted reading. Two requirements:
+A distributed consensus protocol makes the same kind of call on every commit, formally. Each source reports a value (or a range of values, allowing for its own uncertainty). The protocol fuses them into a single trusted reading. Two requirements:
 
-1. The fused reading is somewhere in the range any correct sensor would agree with.
-2. If at most a known number of sensors are broken or lying, the first guarantee still holds.
+1. The fused reading is somewhere in the range any correct source would agree with.
+2. If at most a known number of sources are broken or lying, the first guarantee still holds.
 
-The second requirement is what "Byzantine fault tolerance" means in this setting. A sensor can fail in any way at all: silent, stuck, drifting, actively reporting fictions to undermine the fusion, and the algorithm still has to produce a correct answer.
+The second requirement is what "Byzantine fault tolerance" means in this setting. A source can fail in any way at all: silent, stuck, drifting, actively reporting fictions to undermine the fusion, and the algorithm still has to produce a correct answer.
 
-The minimum redundancy for tolerating `f` faulty sensors out of `n` total is `n ≥ 2f + 1`. With three sensors you can tolerate one fault. With five you can tolerate two. The arithmetic is independent of what the sensors are measuring.
+The minimum redundancy for tolerating `f` faulty sources out of `n` total is `n ≥ 2f + 1`. With three sources you can tolerate one fault. With five you can tolerate two. The arithmetic is independent of what the sources are reporting.
 
 What an algorithm of this shape looks like:
 
-- **Fault-tolerant midpoint** (Schmid and Schossmaier, 2001). Take the readings, sort them, return the median. The median is guaranteed to lie inside the range that correct sensors agree on, given the redundancy assumption.
-- **Marzullo's algorithm** (Marzullo, 1984). The same idea but for ranges instead of single numbers. Each sensor reports an interval `[lo, hi]` representing "I'm certain the true value is somewhere in here." The algorithm returns the smallest output interval whose interior contains a point that at least `n - f` input intervals also contain. By pigeonhole, at least one of those is a correct sensor's interval.
+- **Fault-tolerant midpoint** (Schmid and Schossmaier, 2001). Take the readings, sort them, return the median. The median is guaranteed to lie inside the range that correct sources agree on, given the redundancy assumption.
+- **Marzullo's algorithm** (Marzullo, 1984). The same idea but for ranges instead of single numbers. Each source reports an interval `[lo, hi]` representing "I'm certain the true value is somewhere in here." The algorithm returns the smallest output interval whose interior contains a point that at least `n - f` input intervals also contain. By pigeonhole, at least one of those is a correct source's interval.
 
 Both algorithms are old. Both are well-understood. The contribution isn't the algorithm; it's a publicly-verified implementation in a modern systems language, produced (mostly) by an autonomous coding loop.
 
-## Two verified sensor-fusion artifacts
+## Two verified value-agreement primitives
 
 The methodology — three-role autonomous loop, three boundaries, fresh context per attempt — is the subject of the [calibration post](https://ranjithkannan.com/2026/05/10/verus-calibration-formal-verifier-loop/). Code is at <https://github.com/ranjithkannank/verus-calibration>.
 
-The sensor-fusion track builds on an earlier exercise, a verified Byzantine quorum certificate ([`exercises/quorum_cert.rs`][qc]), that proved the pigeonhole reasoning every Byzantine consensus protocol relies on. The two new artifacts apply the same machinery to sensor fusion.
+The value-agreement track builds on an earlier exercise, a verified Byzantine quorum certificate ([`exercises/quorum_cert.rs`][qc]), that proved the pigeonhole reasoning every Byzantine consensus protocol relies on. The two new artifacts apply the same machinery to fusing multiple noisy reports of an underlying value.
 
-**Fault-tolerant midpoint** ([`exercises/ft_midpoint.rs`][fm]) was the first. Input: a vector of `i64` sensor readings and a Byzantine bound `f`. Output: a single `i64` guaranteed to lie between the lowest and highest readings that honest sensors would have produced. The specification, in Verus:
+**Fault-tolerant midpoint** ([`exercises/ft_midpoint.rs`][fm]) was the first. Input: a vector of `i64` source readings and a Byzantine bound `f`. Output: a single `i64` guaranteed to lie between the lowest and highest readings that honest sources would have produced. The specification, in Verus:
 
 ```rust
 pub fn ft_midpoint(readings: &Vec<Reading>, f: u32) -> (result: Reading)
@@ -52,9 +52,9 @@ pub fn ft_midpoint(readings: &Vec<Reading>, f: u32) -> (result: Reading)
         some_correct_ge(readings@, result),
 ```
 
-The two postconditions say "there is a correct sensor whose reading is below the output, and a correct sensor whose reading is above." Together they bracket the output inside the range honest sensors agree on. The implementer's algorithm was a brute-force scan: for each candidate reading, count how many readings are `≤` it and how many are `≥` it; the first candidate with both counts at least `f + 1` is the answer. The proof of correctness used inclusion-exclusion over set cardinalities.
+The two postconditions say "there is a correct source whose reading is below the output, and a correct source whose reading is above." Together they bracket the output inside the range honest sources agree on. The implementer's algorithm was a brute-force scan: for each candidate reading, count how many readings are `≤` it and how many are `≥` it; the first candidate with both counts at least `f + 1` is the answer. The proof of correctness used inclusion-exclusion over set cardinalities.
 
-**Marzullo's algorithm** ([`exercises/marzullo.rs`][mz]) was the interval generalisation. Sensors report ranges instead of single values; the output is also a range. Same redundancy assumption.
+**Marzullo's algorithm** ([`exercises/marzullo.rs`][mz]) was the interval generalisation. Sources report ranges instead of single values; the output is also a range. Same redundancy assumption.
 
 ```rust
 pub fn marzullo(intervals: &Vec<Interval>, f: u32) -> (result: Interval)
@@ -72,7 +72,7 @@ pub fn marzullo(intervals: &Vec<Interval>, f: u32) -> (result: Interval)
                    >= intervals.len() as nat - f as nat,
 ```
 
-The postcondition says: there's a point inside the output interval that at least `n - f` input intervals also contain. The `correct_intervals_overlap` precondition is the interesting one. It says all correct sensors' intervals share a common point, which is the standard assumption that honest sensors are all reporting bounds around the same underlying true value. We didn't include this precondition the first time we wrote the specification. That's the story below.
+The postcondition says: there's a point inside the output interval that at least `n - f` input intervals also contain. The `correct_intervals_overlap` precondition is the interesting one. It says all correct sources' intervals share a common point, which is the standard assumption that honest sources are all reporting bounds around the same underlying true value. We didn't include this precondition the first time we wrote the specification. That's the story below.
 
 [qc]: https://github.com/ranjithkannank/verus-calibration/blob/main/exercises/quorum_cert.rs
 [fm]: https://github.com/ranjithkannank/verus-calibration/blob/main/exercises/ft_midpoint.rs
@@ -82,15 +82,15 @@ The postcondition says: there's a point inside the output interval that at least
 
 The first run of marzullo failed. Not in a confusing way; in the most useful way we've seen the loop fail.
 
-The implementer worked through the architect's sub-task list for six iterations, building proof scaffolding, defining helper lemmas, constructing a counting function. It got 8 of 9 verifier obligations to verify. The single failing assertion was a step in the safety lemma that required showing `intervals[i].lo ≤ intervals[j].hi` for two correct sensor indices `i` and `j`. Exactly the Helly-1D overlap condition that the algorithm's correctness depends on.
+The implementer worked through the architect's sub-task list for six iterations, building proof scaffolding, defining helper lemmas, constructing a counting function. It got 8 of 9 verifier obligations to verify. The single failing assertion was a step in the safety lemma that required showing `intervals[i].lo ≤ intervals[j].hi` for two correct source indices `i` and `j`. Exactly the Helly-1D overlap condition that the algorithm's correctness depends on.
 
-The verifier refused to accept that assertion. Correctly. Nothing in the specification said anything about correct sensors' intervals overlapping. As written, two "correct" sensors were allowed to report intervals like `[0, 0]` and `[10, 10]`, disjoint singletons satisfying every precondition we'd actually written. Under that allowed model the specification's postcondition was unsatisfiable: no point on the real line lies in both intervals, so no point can be in `n - f = 2` of the three intervals `[[0,0], [10,10], [20,20]]`.
+The verifier refused to accept that assertion. Correctly. Nothing in the specification said anything about correct sources' intervals overlapping. As written, two "correct" sources were allowed to report intervals like `[0, 0]` and `[10, 10]`, disjoint singletons satisfying every precondition we'd actually written. Under that allowed model the specification's postcondition was unsatisfiable: no point on the real line lies in both intervals, so no point can be in `n - f = 2` of the three intervals `[[0,0], [10,10], [20,20]]`.
 
 The implementer noticed this. It produced a constructive counterexample, wrote a structured blocker report, and stopped. It did not try to weaken the specification. It did not silently fill in an `assume(intervals[i].lo <= intervals[j].hi)`. It did not mark the function as externally verified. It produced concrete evidence that the specification we'd authored was logically wrong, and it surfaced that as a clean signal rather than a soft failure.
 
 The architect, re-invoked under the methodology's escalation path, read the blocker report and confirmed the diagnosis. Three separate times, in three independent revisions of the design document. Each revision came to the same conclusion: the specification is missing a precondition; the implementer should write a blocked.md, not try further algorithmic variants.
 
-We (the operator) read all of this and realised the missing precondition was the Helly-1D condition. Honest sensors all observe the same underlying value, so their reported intervals all contain that value, so any two of them share at least one common point. It's the assumption that makes the algorithm meaningful in the first place, and we'd forgotten to write it down. One line of specification:
+We (the operator) read all of this and realised the missing precondition was the Helly-1D condition. Honest sources all observe the same underlying value, so their reported intervals all contain that value, so any two of them share at least one common point. It's the assumption that makes the algorithm meaningful in the first place, and we'd forgotten to write it down. One line of specification:
 
 ```rust
 pub open spec fn correct_intervals_overlap(intervals: Seq<Interval>) -> bool {
@@ -111,7 +111,7 @@ In a sample of six verified exercises, two of them required operator interventio
 
 ## Composing the primitives
 
-The three verified primitives — `quorum_cert`, `ft_midpoint`, `marzullo` — are uncomposed. A verified Byzantine-tolerant sensor poll that authenticates signed sensor reports via the quorum-style check and combines the authenticated readings via Marzullo would be the first end-to-end system on the path. We built three composition exercises to take it on, each adding one piece of what that real system would need. The first demonstrated the composition regime. The second threaded the cryptographic trust boundary through the contract. The third strengthened the postcondition with an honest-voter guarantee and ran as a deliberate test of the methodology itself. All three verified in one attempt each.
+The three verified primitives — `quorum_cert`, `ft_midpoint`, `marzullo` — are uncomposed. A verified Byzantine-tolerant value aggregator that authenticates signed source reports via the quorum-style check and combines the authenticated readings via Marzullo would be the first end-to-end system on the path. We built three composition exercises to take it on, each adding one piece of what that real system would need. The first demonstrated the composition regime. The second threaded the cryptographic trust boundary through the contract. The third strengthened the postcondition with an honest-voter guarantee and ran as a deliberate test of the methodology itself. All three verified in one attempt each.
 
 ### `sensor_poll`
 
@@ -150,9 +150,9 @@ The third exercise was set up specifically as a discovery test. `fusion.rs` and 
     && point_in_interval(p, reports[k].interval)
 ```
 
-There exists a point `p` in the returned interval and an index `k` such that sensor `k` is honest and its reported interval contains `p`. The signature trust boundary is now load-bearing in the proof, not just threaded through the contract.
+There exists a point `p` in the returned interval and an index `k` such that source `k` is honest and its reported interval contains `p`. The signature trust boundary is now load-bearing in the proof, not just threaded through the contract.
 
-The design note was deliberately incomplete: stated the obligation and the informal `n - f` supporters + `n - f` correct sensors overlap argument, but named no lemmas, helper-set constructions, trigger annotations, or sub-proof structure. The architect's playbook does name those constructs under `ft_midpoint`, a different exercise.
+The design note was deliberately incomplete: stated the obligation and the informal `n - f` supporters + `n - f` correct sources overlap argument, but named no lemmas, helper-set constructions, trigger annotations, or sub-proof structure. The architect's playbook does name those constructs under `ft_midpoint`, a different exercise.
 
 The agent verified in one attempt. Its proof introduced `lemma_honest_supporter_exists`, establishing both index sets as subsets of `[0, n)` via `lemma_int_range` and `lemma_len_subset`, applying `lemma_set_intersect_union_lens` to get `|s ∪ c| + |s ∩ c| == |s| + |c|`, concluding `|s ∩ c| ≥ 2(n − f) − n ≥ 1`, then extracting the witness from the non-empty intersection. The lemma's name, signature, proof structure, and specific use of the identity were all the agent's. The agent recognised that the proof family from `ft_midpoint`'s playbook entry applied to a new obligation. One data point on one proof family; the invention-test story (where the playbook documents nothing of the family) is in the [calibration post](https://ranjithkannan.com/2026/05/10/verus-calibration-formal-verifier-loop/).
 
