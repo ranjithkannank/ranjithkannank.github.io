@@ -7,9 +7,9 @@ related:
   - /2026/05/10/verus-calibration-formal-verifier-loop/
 ---
 
-Marzullo's algorithm comes from a 1983 PhD thesis on distributed clock synchronization. Keith Marzullo wanted to keep a set of computer clocks in sync when some clock sources might be unreliable or lying — silent, drifting, or actively reporting fictional times. Each source reports an interval `[lo, hi]` containing what it believes to be the true time; the algorithm fuses these intervals into a single trusted interval, tolerating up to `f` faulty sources out of `n` provided `n ≥ 2f + 1`. The algorithm became foundational to NTP, and to a broader family of Byzantine-tolerant value-agreement primitives: replica voting, source agreement, any setting where multiple noisy reports on a single underlying value have to be fused and some reports may be lying.
+Marzullo's algorithm comes from a 1983 PhD thesis on distributed clock synchronization. Keith Marzullo wanted to keep a set of computer clocks in sync when some clock sources might be unreliable or lying: silent, drifting, or actively reporting fictional times. Each source reports an interval `[lo, hi]` containing what it believes to be the true time; the algorithm fuses these intervals into a single trusted interval, tolerating up to `f` faulty sources out of `n` provided `n ≥ 2f + 1`. The algorithm became foundational to NTP, and to a broader family of Byzantine-tolerant value-agreement primitives: replica voting, source agreement, any setting where multiple noisy reports on a single underlying value have to be fused and some reports may be lying.
 
-Distributed-systems research has carried the name "Byzantine" for the deceptive-failure case since Lamport, Shostak, and Pease coined it in 1982. The silent case is easier — a source that returns nothing is one a protocol can plan for. A source that returns a value plausible enough not to be flagged is harder, and that case is the one Byzantine fault tolerance is named after.
+Distributed-systems research has carried the name "Byzantine" for the deceptive-failure case since Lamport, Shostak, and Pease coined it in 1982. The silent case is easier; a source that returns nothing is one a protocol can plan for. A source that returns a value plausible enough not to be flagged is harder, and that case is the one Byzantine fault tolerance is named after.
 
 This post is about two such algorithms, implemented in Rust with formal proofs of correctness, and three exercises that compose them into a verified Byzantine-tolerant value aggregator. All five were produced through an autonomous coding loop. One of the algorithm exercises surfaced a bug in our own specification that we wouldn't have caught without the loop's strict refusal to cheat. The third composition exercise was set up as a deliberate test of whether the loop can discover proofs rather than only execute pre-designed ones; it passed, and the result subsequently survived an audit re-run with the operator-authored witness file hidden. Those are the pieces worth reading for.
 
@@ -35,7 +35,7 @@ Both algorithms are old. Both are well-understood. The contribution isn't the al
 
 ## Two verified value-agreement primitives
 
-The methodology — three-role autonomous loop, three boundaries, fresh context per attempt — is the subject of the [calibration post](https://ranjithkannan.com/2026/05/10/verus-calibration-formal-verifier-loop/).
+The methodology (three-role autonomous loop, three boundaries, fresh context per attempt) is the subject of the [calibration post](https://ranjithkannan.com/2026/05/10/verus-calibration-formal-verifier-loop/).
 
 The value-agreement track builds on an earlier exercise, a verified Byzantine quorum certificate, that proved the pigeonhole reasoning every Byzantine consensus protocol relies on. The two new artifacts apply the same machinery to fusing multiple noisy reports of an underlying value.
 
@@ -107,7 +107,7 @@ In a sample of six verified exercises, two of them required operator interventio
 
 ## Composing the primitives
 
-The three verified primitives — `quorum_cert`, `ft_midpoint`, `marzullo` — are uncomposed. A verified Byzantine-tolerant value aggregator that authenticates signed source reports via the quorum-style check and combines the authenticated readings via Marzullo would be the first end-to-end system on the path. We built three composition exercises to take it on, each adding one piece of what that real system would need. The first demonstrated the composition regime. The second threaded the cryptographic trust boundary through the contract. The third strengthened the postcondition with an honest-voter guarantee and ran as a deliberate test of the methodology itself. All three verified in one attempt each.
+The three verified primitives (`quorum_cert`, `ft_midpoint`, `marzullo`) are uncomposed. A verified Byzantine-tolerant value aggregator that authenticates signed source reports via the quorum-style check and combines the authenticated readings via Marzullo would be the first end-to-end system on the path. We built three composition exercises to take it on, each adding one piece of what that real system would need. The first demonstrated the composition regime. The second threaded the cryptographic trust boundary through the contract. The third strengthened the postcondition with an honest-voter guarantee and ran as a deliberate test of the methodology itself. All three verified in one attempt each.
 
 ### `sensor_poll`
 
@@ -154,9 +154,9 @@ The agent verified in one attempt. Its proof introduced `lemma_honest_supporter_
 
 ## What compounded across exercises
 
-Each verified exercise added something to a shared playbook the next exercise could pick up. Quorum_cert produced pigeonhole-via-contradiction (`if !(exists ...) { ... assert(false); }`, derive a subset relation, apply `lemma_len_subset`). Ft_midpoint produced the inclusion-exclusion shape via `lemma_set_intersect_union_lens` — forward through set arithmetic rather than backward through contradiction. Marzullo produced a third: argmax-plus-Helly-1D for constructive existence, cleaner than either pigeonhole shape because the proof gives the witness directly.
+Each verified exercise added something to a shared playbook the next exercise could pick up. Quorum_cert produced pigeonhole-via-contradiction (`if !(exists ...) { ... assert(false); }`, derive a subset relation, apply `lemma_len_subset`). Ft_midpoint produced the inclusion-exclusion shape via `lemma_set_intersect_union_lens`, forward through set arithmetic rather than backward through contradiction. Marzullo produced a third: argmax-plus-Helly-1D for constructive existence, cleaner than either pigeonhole shape because the proof gives the witness directly.
 
-After six exercises the playbook was long enough that the marzullo restart converged in one attempt, the implementer reusing scaffolding from ft_midpoint and the prior blocked run. The discovery question — whether the agent could recognise a proof family and apply it to a new obligation without the architect spelling out the construct — got a clearer answer through `sensor_poll_honest` and `counter_filler`: two data points on two distinct proof families, both audit-confirmed under the hardened witness-deny whitelist with prior playbook summaries stripped. The invention question is a different test, covered in the [calibration post](https://ranjithkannan.com/2026/05/10/verus-calibration-formal-verifier-loop/).
+After six exercises the playbook was long enough that the marzullo restart converged in one attempt, the implementer reusing scaffolding from ft_midpoint and the prior blocked run. The discovery question (whether the agent could recognise a proof family and apply it to a new obligation without the architect spelling out the construct) got a clearer answer through `sensor_poll_honest` and `counter_filler`: two data points on two distinct proof families, both audit-confirmed under the hardened witness-deny whitelist with prior playbook summaries stripped. The invention question is a different test, covered in the [calibration post](https://ranjithkannan.com/2026/05/10/verus-calibration-formal-verifier-loop/).
 
 ## Honest limitations
 

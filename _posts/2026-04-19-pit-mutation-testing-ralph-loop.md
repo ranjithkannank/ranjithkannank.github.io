@@ -90,7 +90,7 @@ The "matching `*Test.java` exists" filter is the scope rule. It handles exclusio
 
 The gate has three outcomes.
 
-**PASS**: mutation coverage ≥ 70% across all target classes. Mark `N.PITEST` as `[x]` in tasks.md, append `PITEST PASS — <coverage>% (<killed>/<total>)` to progress.txt, exit 0. Loop moves on to `N.PRE-CR`.
+**PASS**: mutation coverage ≥ 70% across all target classes. Mark `N.PITEST` as `[x]` in tasks.md, append `PITEST PASS - <coverage>% (<killed>/<total>)` to progress.txt, exit 0. Loop moves on to `N.PRE-CR`.
 
 **FAIL**: at least one target class fell below threshold. Append the HTML report path to progress.txt so the worker can read it directly on the next iteration. Uncheck `N.` (the impl task) so the worker picks it up. Leave `N.PITEST` unchecked so the gate re-runs after the worker commits. Exit 1.
 
@@ -126,15 +126,15 @@ Measured on a single-package Java service:
 
 | Task shape | Classes mutated | Wall-clock |
 |---|---|---|
-| Single new class + test | 1 | ~30–60s |
-| Class + helper + util | 2–3 | ~1–2 min |
-| Whole-package (no scope flag) | ~50 | ~3–5 min |
+| Single new class + test | 1 | ~30-60s |
+| Class + helper + util | 2-3 | ~1-2 min |
+| Whole-package (no scope flag) | ~50 | ~3-5 min |
 
 Per-task scoping is worth the engineering. On a twenty-task spec with PIT on every impl task, scoped runs add fifteen to twenty minutes of total wall-clock. Full-package runs would add over an hour.
 
 ## What This Doesn't Replace
 
-PIT validates that tests are strong enough to distinguish the current implementation from close variants. It does not catch requirements the implementation doesn't address. If the spec says "validate input" and the implementation doesn't validate, there's no mutation to survive — the original behavior is the bug. REQ-CHECK catches this.
+PIT validates that tests are strong enough to distinguish the current implementation from close variants. It does not catch requirements the implementation doesn't address. If the spec says "validate input" and the implementation doesn't validate, there's no mutation to survive. The original behavior is the bug. REQ-CHECK catches this.
 
 It doesn't catch cross-component contract mismatches. Two components reading the same JSON path with different field names is invisible to PIT. The Final Validator catches this.
 

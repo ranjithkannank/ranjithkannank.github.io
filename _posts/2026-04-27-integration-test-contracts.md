@@ -137,7 +137,7 @@ A second benefit: the contract is machine-readable. The final-validator's six ch
 
 The same six checks look shell-scriptable and we considered it. We decided to wait because:
 
-Five of the six checks are easy (grep, regex, count). The field-reference check is hard. `assertThat(response).hasFieldOrPropertyWithValue("details.errorCode", ...)` versus `assertEquals(expected.getDetails().getErrorCode(), actual.getDetails().getErrorCode())` versus `var e = actual.getDetails(); assertEquals("X", e.getErrorCode())` — the LLM matches these intentionally; a substring grep matches or mis-matches depending on the code style. False negatives on this one check undermine the whole gate.
+Five of the six checks are easy (grep, regex, count). The field-reference check is hard. `assertThat(response).hasFieldOrPropertyWithValue("details.errorCode", ...)` versus `assertEquals(expected.getDetails().getErrorCode(), actual.getDetails().getErrorCode())` versus `var e = actual.getDetails(); assertEquals("X", e.getErrorCode())`; the LLM matches these intentionally, but a substring grep matches or mis-matches depending on the code style. False negatives on this one check undermine the whole gate.
 
 We have one spec with a contract so far. A shell gate is worth building once the pattern repeats. Two more contracts and we'd have concrete data on which match patterns actually show up.
 

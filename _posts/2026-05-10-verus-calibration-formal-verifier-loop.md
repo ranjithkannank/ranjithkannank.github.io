@@ -95,7 +95,7 @@ Results at a glance:
 | vec_swap_v2           | INVALIDATED | 1                   | Invention test   |
 | swap_multiset         | DONE        | 1                   | Invention test   |
 
-A caveat: every 1-attempt success after `marzullo` carried the same shape — the architect's design note pre-named the load-bearing proof construct, so the agent executed a designed proof rather than discovering one. The discovery tests (`sensor_poll_honest`, `counter_filler`) and the invention tests (`swap_multiset`) probe the discovery and invention halves below.
+A caveat: every 1-attempt success after `marzullo` carried the same shape. The architect's design note pre-named the load-bearing proof construct, so the agent executed a designed proof rather than discovering one. The discovery tests (`sensor_poll_honest`, `counter_filler`) and the invention tests (`swap_multiset`) probe the discovery and invention halves below.
 
 ### binary_search
 
@@ -145,7 +145,7 @@ The hardest of the three calibration exercises. The spec defines `distinct_count
 
 Attempt 1 returned `5 verified, 2 errors`: the empty-subrange `to_set().len()` was not seen as 0 at loop entry, and the `count <= n` bound after increment needed a pigeonhole argument.
 
-Attempt 2 did something we had not predicted. Rather than guessing at lemma names, the implementer grepped the local `vstd` source for relevant helpers — `lemma_len_subset`, `lemma_int_range`, `axiom_set_insert_len`. It noticed the type mismatch between `Set<NodeId>` and `Set<int>` and wrote a new NodeId-analogue helper `lemma_range_nodeid_len` by structural recursion on `u32`. Final: `8 verified, 0 errors`. The agent could have left `assert(count <= n)` in place, weakened the invariant, or added an `assume` (and been caught by the hook). It wrote a recursive cardinality lemma instead.
+Attempt 2 did something we had not predicted. Rather than guessing at lemma names, the implementer grepped the local `vstd` source for relevant helpers: `lemma_len_subset`, `lemma_int_range`, `axiom_set_insert_len`. It noticed the type mismatch between `Set<NodeId>` and `Set<int>` and wrote a new NodeId-analogue helper `lemma_range_nodeid_len` by structural recursion on `u32`. Final: `8 verified, 0 errors`. The agent could have left `assert(count <= n)` in place, weakened the invariant, or added an `assume` (and been caught by the hook). It wrote a recursive cardinality lemma instead.
 
 The reviewer added a cross-exercise observation: the implementer leans heavily on `=~=` extensional equality and `choose` witnesses, a pattern that recurred in `bounded_log`. That observation went into the playbook.
 
@@ -177,7 +177,7 @@ A second attempt (`vec_swap_v2`) was also INVALIDATED because the operator's `cp
 
 Two batches against tasks we did not design from Microsoft's [VeruSAGE-Bench](https://github.com/microsoft/verus-proof-synthesis). The load-bearing result is batch 2: eight tasks attempted with deliberately neutral design notes (no tooling-family names, no lemma names, no proof-structure suggestions), six verified, two distinct blocking findings. *Honest scope first:* the evidence says the methodology travels at small-to-medium proof-fn and exec sizes (171 B to 3.7 KB); it does not yet say it travels at VeruSAGE-Bench's full scale (7-24 KB examples deliberately deferred). Batch 1 was a smaller historical probe (n=2) with operator-authored design notes that named the tooling family, so its evidence was about harness adaptation only.
 
-Six tasks verified — five single-attempt, one two-attempt (IR `singleton_seq_to_set_is_singleton_set`). The two-attempt arc is the methodology-grade data point: attempt 1 tried the obvious `=~=` extensional equality, watched verus reject it, and recorded in its own notes that "`=~=` alone doesn't trigger the `to_set` axiom needed to expand `seq![x].to_set().contains(y)`"; attempt 2 closed via vstd's `lemma_push_to_set_commute`. The agent read its failure, named the missing axiom, found the vstd lemma family that supplied it.
+Six tasks verified: five single-attempt, one two-attempt (IR `singleton_seq_to_set_is_singleton_set`). The two-attempt arc is the methodology-grade data point: attempt 1 tried the obvious `=~=` extensional equality, watched verus reject it, and recorded in its own notes that "`=~=` alone doesn't trigger the `to_set` axiom needed to expand `seq![x].to_set().contains(y)`"; attempt 2 closed via vstd's `lemma_push_to_set_commute`. The agent read its failure, named the missing axiom, found the vstd lemma family that supplied it.
 
 Two tasks blocked, with distinct findings.
 
@@ -235,7 +235,7 @@ The **Verus vericoding benchmark** (Schubert et al., 2025) measures LLM success 
 
 After the Microsoft work in particular, the claim worth defending is narrower than "no prior public work in this intersection." It is: a separate audit role running on a different model, a mechanical commit-time enforcement layer running alongside the LLM audit, per-attempt commits as the unit of evaluation, and operator-authored witness files used both for pre-spec verification and as a structural boundary the agent cannot reach.
 
-A second contribution worth naming: the operator-intervention cases on `bounded_log` and `marzullo`. Most published vericoding results either succeed silently or fail silently. The loop's behaviour on both — the agent refused to cheat, articulated the constraint, named the empowered role, and stopped — is the kind of structured-failure output a trustworthy methodology should produce. The pre-spec witness check has since removed that class of operator-time mistakes.
+A second contribution worth naming: the operator-intervention cases on `bounded_log` and `marzullo`. Most published vericoding results either succeed silently or fail silently. The loop's behaviour on both (the agent refused to cheat, articulated the constraint, named the empowered role, and stopped) is the kind of structured-failure output a trustworthy methodology should produce. The pre-spec witness check has since removed that class of operator-time mistakes.
 
 Two next experiments. A verified Byzantine agreement primitive plus hardware-deployed sensor-fusion under live fault injection (deferred). And five to ten more VeruSAGE-Bench tasks at larger sizes with neutral design notes. Negative results from that run are more informative than positive ones; they tell us where the methodology stops travelling.
 
