@@ -35,11 +35,11 @@ Both algorithms are old. Both are well-understood. The contribution isn't the al
 
 ## Two verified value-agreement primitives
 
-The methodology — three-role autonomous loop, three boundaries, fresh context per attempt — is the subject of the [calibration post](https://ranjithkannan.com/2026/05/10/verus-calibration-formal-verifier-loop/). Code is at <https://github.com/ranjithkannank/verus-calibration>.
+The methodology — three-role autonomous loop, three boundaries, fresh context per attempt — is the subject of the [calibration post](https://ranjithkannan.com/2026/05/10/verus-calibration-formal-verifier-loop/).
 
-The value-agreement track builds on an earlier exercise, a verified Byzantine quorum certificate ([`exercises/quorum_cert.rs`][qc]), that proved the pigeonhole reasoning every Byzantine consensus protocol relies on. The two new artifacts apply the same machinery to fusing multiple noisy reports of an underlying value.
+The value-agreement track builds on an earlier exercise, a verified Byzantine quorum certificate, that proved the pigeonhole reasoning every Byzantine consensus protocol relies on. The two new artifacts apply the same machinery to fusing multiple noisy reports of an underlying value.
 
-**Fault-tolerant midpoint** ([`exercises/ft_midpoint.rs`][fm]) was the first. Input: a vector of `i64` source readings and a Byzantine bound `f`. Output: a single `i64` guaranteed to lie between the lowest and highest readings that honest sources would have produced. The specification, in Verus:
+**Fault-tolerant midpoint** was the first. Input: a vector of `i64` source readings and a Byzantine bound `f`. Output: a single `i64` guaranteed to lie between the lowest and highest readings that honest sources would have produced. The specification, in Verus:
 
 ```rust
 pub fn ft_midpoint(readings: &Vec<Reading>, f: u32) -> (result: Reading)
@@ -54,7 +54,7 @@ pub fn ft_midpoint(readings: &Vec<Reading>, f: u32) -> (result: Reading)
 
 The two postconditions say "there is a correct source whose reading is below the output, and a correct source whose reading is above." Together they bracket the output inside the range honest sources agree on. The implementer's algorithm was a brute-force scan: for each candidate reading, count how many readings are `≤` it and how many are `≥` it; the first candidate with both counts at least `f + 1` is the answer. The proof of correctness used inclusion-exclusion over set cardinalities.
 
-**Marzullo's algorithm** ([`exercises/marzullo.rs`][mz]) was the interval generalisation. Sources report ranges instead of single values; the output is also a range. Same redundancy assumption.
+**Marzullo's algorithm** was the interval generalisation. Sources report ranges instead of single values; the output is also a range. Same redundancy assumption.
 
 ```rust
 pub fn marzullo(intervals: &Vec<Interval>, f: u32) -> (result: Interval)
@@ -73,10 +73,6 @@ pub fn marzullo(intervals: &Vec<Interval>, f: u32) -> (result: Interval)
 ```
 
 The postcondition says: there's a point inside the output interval that at least `n - f` input intervals also contain. The `correct_intervals_overlap` precondition is the interesting one. It says all correct sources' intervals share a common point, which is the standard assumption that honest sources are all reporting bounds around the same underlying true value. We didn't include this precondition the first time we wrote the specification. That's the story below.
-
-[qc]: https://github.com/ranjithkannank/verus-calibration/blob/main/exercises/quorum_cert.rs
-[fm]: https://github.com/ranjithkannank/verus-calibration/blob/main/exercises/ft_midpoint.rs
-[mz]: https://github.com/ranjithkannank/verus-calibration/blob/main/exercises/marzullo.rs
 
 ## When the loop refused to verify
 
@@ -174,16 +170,3 @@ The composition exercises do not use `ft_midpoint`. All three pick `marzullo` (i
 
 And the three composition exercises are not "a small system." They are three verified end-to-end functions, each building on the last. A system would have multiple flows, a configuration surface, real I/O. What we have is composition reasoning, demonstrated; not a system, claimed.
 
-## Where to find everything
-
-- Repo: <https://github.com/ranjithkannank/verus-calibration>
-- The verified primitives:
-  - [`exercises/quorum_cert.rs`](https://github.com/ranjithkannank/verus-calibration/blob/main/exercises/quorum_cert.rs)
-  - [`exercises/ft_midpoint.rs`](https://github.com/ranjithkannank/verus-calibration/blob/main/exercises/ft_midpoint.rs)
-  - [`exercises/marzullo.rs`](https://github.com/ranjithkannank/verus-calibration/blob/main/exercises/marzullo.rs)
-- The composition exercises:
-  - [`exercises/sensor_poll/`](https://github.com/ranjithkannank/verus-calibration/tree/main/exercises/sensor_poll)
-  - [`exercises/sensor_poll_signed/`](https://github.com/ranjithkannank/verus-calibration/tree/main/exercises/sensor_poll_signed)
-  - [`exercises/sensor_poll_honest/`](https://github.com/ranjithkannank/verus-calibration/tree/main/exercises/sensor_poll_honest)
-- The methodology, witness-access hardening, and find-fix-audit story: <https://ranjithkannan.com/2026/05/10/verus-calibration-formal-verifier-loop/>
-- The marzullo operator-intervention case in full detail, including the constructive counterexample and the architect's three revisions: the prior frozen tag's `logs/marzullo/blocked.md`, preserved in git history at commit [`c859e6f`](https://github.com/ranjithkannank/verus-calibration/commit/c859e6f).

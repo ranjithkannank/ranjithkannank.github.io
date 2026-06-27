@@ -13,22 +13,19 @@ The previous four posts in this series tightened the feedback signal that an aut
 
 A formal verifier is the limit of that progression. It is a feedback signal the agent cannot satisfy except by either weakening the specification or actually being correct. The methodology here is the rule that closes the first path: no spec weakening, audited at three boundaries, on every commit. The empirical question is whether the loop can still produce verified code under that constraint, and whether the methodology holds up when probed for cheats, for proof discovery, for proof invention, and on tasks we did not design.
 
-We picked Verus because it operates on real Rust. The original calibration was three exercises: a sorted binary search, a fixed-capacity append-only log with a frame property, and a Byzantine quorum check whose spec talks about mathematical set cardinality but whose implementation has to walk a `Vec`. The methodology then carried through eleven more exercises across four extension tracks (BFT primitives, multi-module Verus, composing the primitives, discovery and invention tests). An external-validity probe against Microsoft's VeruSAGE-Bench landed last. Everything described here lives at <https://github.com/ranjithkannank/verus-calibration>.
+We picked Verus because it operates on real Rust. The original calibration was three exercises: a sorted binary search, a fixed-capacity append-only log with a frame property, and a Byzantine quorum check whose spec talks about mathematical set cardinality but whose implementation has to walk a `Vec`. The methodology then carried through eleven more exercises across four extension tracks (BFT primitives, multi-module Verus, composing the primitives, discovery and invention tests). An external-validity probe against Microsoft's VeruSAGE-Bench landed last.
 
 ## The setup
 
-Three roles, three [Claude Code subagents](https://github.com/ranjithkannank/verus-calibration/tree/main/.claude/agents).
+Three roles, three Claude Code subagents.
 
-- **[Architect](https://github.com/ranjithkannank/verus-calibration/blob/main/.claude/agents/architect.md)** (Opus 4.7). Reads the frozen spec. Writes a design note. Does not see verifier output on the first pass.
-- **[Implementer](https://github.com/ranjithkannank/verus-calibration/blob/main/.claude/agents/implementer.md)** (Opus 4.7, originally Sonnet 4.6). One attempt per call: edit the file, run verus, log the result.
-- **[Reviewer](https://github.com/ranjithkannank/verus-calibration/blob/main/.claude/agents/reviewer.md)** (Opus 4.7). After verus passes, audits the diff against the frozen baseline. Returns `APPROVE` or `REJECT`.
+- **Architect** (Opus 4.7). Reads the frozen spec. Writes a design note. Does not see verifier output on the first pass.
+- **Implementer** (Opus 4.7, originally Sonnet 4.6). One attempt per call: edit the file, run verus, log the result.
+- **Reviewer** (Opus 4.7). After verus passes, audits the diff against the frozen baseline. Returns `APPROVE` or `REJECT`.
 
 The reviewer is a separate role for the same reason the [previous post](https://ranjithkannan.com/2026/04/23/final-validator-ralph-loop/) argued for splitting audit from decision: a fresh-context audit catches what the author cannot.
 
-The three roles are wired together by a [Ralph-style outer loop][ralph] in bash. The loop reads state from filesystem artifacts and fires one `claude -p` call per iteration with fresh context each time. Memory lives in [`AGENTS.md`][agentsmd], the design note, `attempts.md`, and git history. The state machine:
-
-[ralph]: https://github.com/ranjithkannank/verus-calibration/blob/main/ralph/run-exercise.sh
-[agentsmd]: https://github.com/ranjithkannank/verus-calibration/blob/main/AGENTS.md
+The three roles are wired together by a Ralph-style outer loop in bash. The loop reads state from filesystem artifacts and fires one `claude -p` call per iteration with fresh context each time. Memory lives in `AGENTS.md`, the design note, `attempts.md`, and git history. The state machine:
 
 ```
                   ┌─────────────────────────────────┐
@@ -63,13 +60,11 @@ The `--no-session-persistence` flag is what makes this a Ralph loop. Each iterat
 
 A loop that runs unattended needs boundaries. There are three. The first two protect the agent's working set from the agent's own shortcuts; the third protects operator-authored material from the agent.
 
-**Content boundary: a pre-commit hook.** Every commit goes through [`scripts/git-hooks/pre-commit`][hook]. It rejects three things.
+**Content boundary: a pre-commit hook.** Every commit goes through a `scripts/git-hooks/pre-commit` hook. It rejects three things.
 
 1. Any staged file outside a path whitelist (`exercises/`, `logs/`, `writeup/`, `ralph/`, `scripts/`, `.claude/`, the named top-level docs).
 2. Any cheat token added in `exercises/*.rs`: `assume(`, `#[verifier::external_body]`, `unreachable!()`, `panic!(`, `assume_specification`.
 3. Spec drift. Every line in the frozen baseline whose body is part of a `requires` or `ensures` block must appear verbatim in the staged file. For each staged exercise file, the hook diffs against the `spec-frozen-<exercise>` git tag and walks the frozen file by indentation to extract the complete clause body. Cosmetic reformatting that touches a frozen clause is rejected as firmly as a semantic weakening.
-
-[hook]: https://github.com/ranjithkannank/verus-calibration/blob/main/scripts/git-hooks/pre-commit
 
 **Capability boundary: a Claude Code tool whitelist.** Each `claude -p` call passes a role-scoped `--allowedTools` list and a universal `--disallowedTools` deny set. The deny set includes `WebFetch`, `WebSearch`, `Task` (no sub-agent fan-out), `*--no-verify*` so the agent cannot bypass the hook, plus the usual network and install patterns. The architect gets only the tools it needs to write a design note. The reviewer does not get `Edit`.
 
@@ -129,11 +124,9 @@ On the first attempt, the implementer wrote `final(self)` everywhere in the `ens
 +                       final(self).view()[i] == old(self).view()[i]
 ```
 
-The [full audit][bounded-log-reject]:
+The full audit:
 
 > Even granting the implementer's claim that `final(self)` is semantically equivalent to the post-state `self`, this is not byte-identical and therefore falls under rule 1.
-
-[bounded-log-reject]: https://github.com/ranjithkannank/verus-calibration/commit/2f61144
 
 On the second attempt, the implementer restored bare `self`. Verus rejected it with a `&mut self` postcondition disambiguation error. Both paths now violated a rule. The implementer wrote a structured blocker report:
 
@@ -152,9 +145,7 @@ The hardest of the three calibration exercises. The spec defines `distinct_count
 
 Attempt 1 returned `5 verified, 2 errors`: the empty-subrange `to_set().len()` was not seen as 0 at loop entry, and the `count <= n` bound after increment needed a pigeonhole argument.
 
-Attempt 2 did something we had not predicted. Rather than guessing at lemma names, the implementer grepped the local `vstd` source for relevant helpers — `lemma_len_subset`, `lemma_int_range`, `axiom_set_insert_len`. It noticed the type mismatch between `Set<NodeId>` and `Set<int>` and wrote a new NodeId-analogue helper [`lemma_range_nodeid_len`][quorum-rs] by structural recursion on `u32`. Final: `8 verified, 0 errors`. The agent could have left `assert(count <= n)` in place, weakened the invariant, or added an `assume` (and been caught by the hook). It wrote a recursive cardinality lemma instead.
-
-[quorum-rs]: https://github.com/ranjithkannank/verus-calibration/blob/main/exercises/quorum_count.rs
+Attempt 2 did something we had not predicted. Rather than guessing at lemma names, the implementer grepped the local `vstd` source for relevant helpers — `lemma_len_subset`, `lemma_int_range`, `axiom_set_insert_len`. It noticed the type mismatch between `Set<NodeId>` and `Set<int>` and wrote a new NodeId-analogue helper `lemma_range_nodeid_len` by structural recursion on `u32`. Final: `8 verified, 0 errors`. The agent could have left `assert(count <= n)` in place, weakened the invariant, or added an `assume` (and been caught by the hook). It wrote a recursive cardinality lemma instead.
 
 The reviewer added a cross-exercise observation: the implementer leans heavily on `=~=` extensional equality and `choose` witnesses, a pattern that recurred in `bounded_log`. That observation went into the playbook.
 
@@ -178,7 +169,7 @@ The invention-test arc produced the operator-territory boundary. The first inven
 
 > The architect-owned witness file was visible to the implementer and gave the proof skeleton verbatim. For pure invention measurement, future exercises should hide the witness.
 
-The agent flagged its own corruption in its own logs. We marked `vec_swap` INVALIDATED and extended `DISALLOWED_TOOLS` with the witness-deny patterns. An empirical probe at [`scripts/probe-witness-deny.sh`](https://github.com/ranjithkannank/verus-calibration/blob/main/scripts/probe-witness-deny.sh) confirms each of six attack vectors gets blocked, with the agent's own verdict: "I was unable to read any of the witness file's contents through any of the attempted methods."
+The agent flagged its own corruption in its own logs. We marked `vec_swap` INVALIDATED and extended `DISALLOWED_TOOLS` with the witness-deny patterns. An empirical probe confirms each of six attack vectors gets blocked, with the agent's own verdict: "I was unable to read any of the witness file's contents through any of the attempted methods."
 
 A second attempt (`vec_swap_v2`) was also INVALIDATED because the operator's `cp vec_swap.rs vec_swap_v2.rs` copied the agent's already-filled body as the scaffold. The third attempt (`swap_multiset`, same spec as `vec_swap` but a hand-typed scaffold under the hardened whitelist) verified in one attempt with a proof structurally different from the operator-authored witness.
 
@@ -190,7 +181,7 @@ Six tasks verified — five single-attempt, one two-attempt (IR `singleton_seq_t
 
 Two tasks blocked, with distinct findings.
 
-The first, `NR__definitions_u__lemma_maxphyaddr_facts`, was blocked by a real gap in our own pre-commit hook. The upstream task ships with `#[verifier(external_body)]` on an opaque-constant declaration. Our hook's cheat-token detector treated every line of the brand-new scaffold file as "added" and rejected the `external_body` marker as agent-introduced cheating. Both layers were fixed in commit [`041df77`](https://github.com/ranjithkannank/verus-calibration/commit/041df77): the pre-commit hook now diffs against `spec-frozen-<exercise>` when the tag exists and treats the scaffold commit as a baseline event; the witness check counts cheat-token occurrences in the witness minus the count in the paired exercise file. The task ran cleanly under the fix and verified in one attempt. The blocked-then-fixed-then-verified arc is itself the empirical demonstration of the boundary refinement.
+The first, `NR__definitions_u__lemma_maxphyaddr_facts`, was blocked by a real gap in our own pre-commit hook. The upstream task ships with `#[verifier(external_body)]` on an opaque-constant declaration. Our hook's cheat-token detector treated every line of the brand-new scaffold file as "added" and rejected the `external_body` marker as agent-introduced cheating. Both layers were fixed: the pre-commit hook now diffs against `spec-frozen-<exercise>` when the tag exists and treats the scaffold commit as a baseline event; the witness check counts cheat-token occurrences in the witness minus the count in the paired exercise file. The task ran cleanly under the fix and verified in one attempt. The blocked-then-fixed-then-verified arc is itself the empirical demonstration of the boundary refinement.
 
 The second, `OS__array__impl4__init2none`, was blocked by an upstream-downstream Verus version mismatch. The task's `ensures` clauses use pre-`final(self)` syntax that the current Verus build rejects; the witness fails to verify under our Verus, so the agent loop never ran. This is exactly the class of finding the witness mechanism is designed to catch. Pinning Verus to VeruSAGE-Bench's authored version is queued.
 
@@ -208,7 +199,7 @@ Nine claims we are willing to defend from this run.
 
 **Per-iteration scoping plus an architect sub-task list kept iterations narrow.** Each implementer call is directed at the smallest unfinished sub-task from the architect's design or at the specific failing function from the latest verifier output. The orchestrator iterates; the implementer does one thing per call.
 
-**Pre-spec witness verification catches operator-time spec bugs.** Before tagging `spec-frozen-<name>`, the operator runs `ralph/check-spec.sh` against a reference implementation. A verus-passing witness means the spec admits a model. Two calibration exercises (`bounded_log`, `marzullo`) burned agent cycles on spec bugs this check would have caught; none of the post-witness-check exercises did. An empirical negative test in [`scripts/test-witness-catches-bad-spec.sh`](https://github.com/ranjithkannank/verus-calibration/blob/main/scripts/test-witness-catches-bad-spec.sh) confirms verus rejects a marzullo witness with the Helly-1D precondition stripped.
+**Pre-spec witness verification catches operator-time spec bugs.** Before tagging `spec-frozen-<name>`, the operator runs `ralph/check-spec.sh` against a reference implementation. A verus-passing witness means the spec admits a model. Two calibration exercises (`bounded_log`, `marzullo`) burned agent cycles on spec bugs this check would have caught; none of the post-witness-check exercises did. An empirical negative test confirms verus rejects a marzullo witness with the Helly-1D precondition stripped.
 
 **Deliberate discovery tests passed, audit-confirmed.** `sensor_poll_honest` and `counter_filler` verified in one attempt each, then survived a re-audit under the hardened whitelist with their prior playbook summaries stripped from `AGENTS.md`. Two data points on two distinct proof families.
 
@@ -216,15 +207,15 @@ Nine claims we are willing to defend from this run.
 
 **The methodology travels on tasks we did not design, at small-to-medium sizes.** *Caveat first:* the claim is bounded by size. Across two batches against VeruSAGE-Bench tasks (171 B to 3.7 KB), eight of ten attempts verified, and six of those eight passed under deliberately neutral design notes. It does not yet travel at VeruSAGE-Bench's full scale (7-24 KB examples deliberately deferred).
 
-**The cheat-token boundary is now scaffold-aware.** Two surgical fixes in commit [`041df77`](https://github.com/ranjithkannank/verus-calibration/commit/041df77): `scripts/git-hooks/pre-commit` diffs against `spec-frozen-<exercise>` and skips cheat-token detection on the scaffold commit; `ralph/check-spec.sh` counts cheat-token occurrences in the witness minus the count in the paired exercise file. The blocked-then-fixed-then-verified arc on `NR__definitions_u__lemma_maxphyaddr_facts` (commits [`e2a2cb6`](https://github.com/ranjithkannank/verus-calibration/commit/e2a2cb6) blocked, [`041df77`](https://github.com/ranjithkannank/verus-calibration/commit/041df77) fix, [`248a6cc`](https://github.com/ranjithkannank/verus-calibration/commit/248a6cc) DONE) is the empirical demonstration.
+**The cheat-token boundary is now scaffold-aware.** Two surgical fixes: `scripts/git-hooks/pre-commit` diffs against `spec-frozen-<exercise>` and skips cheat-token detection on the scaffold commit; `ralph/check-spec.sh` counts cheat-token occurrences in the witness minus the count in the paired exercise file. The blocked-then-fixed-then-verified arc on `NR__definitions_u__lemma_maxphyaddr_facts` is the empirical demonstration.
 
 ## What the loop got wrong
 
 Four honest shortcomings worth flagging.
 
-**The hook's spec-preservation check had a known gap.** It used to look for lines whose first token was `requires` or `ensures`, missing the body content underneath. The bounded_log REJECT was caught only by the reviewer. The hook now walks the frozen file by indentation and extracts the complete clause body. Fix in [`scripts/git-hooks/pre-commit`](https://github.com/ranjithkannank/verus-calibration/blob/main/scripts/git-hooks/pre-commit) with tests under `scripts/test-hook-spec-preservation.sh`.
+**The hook's spec-preservation check had a known gap.** It used to look for lines whose first token was `requires` or `ensures`, missing the body content underneath. The bounded_log REJECT was caught only by the reviewer. The hook now walks the frozen file by indentation and extracts the complete clause body.
 
-**The orchestrator used to treat every non-zero claude exit code as verus-failed.** A rate-limited response, a budget cap firing, a network blip all produced the same exit code. The first `quorum_count` run burned 27 rate-limited iterations before its outer ceiling fired. The orchestrator now classifies failures by grepping the iteration log against known signatures. Tests in [`ralph/test-classify-failure.sh`](https://github.com/ranjithkannank/verus-calibration/blob/main/ralph/test-classify-failure.sh).
+**The orchestrator used to treat every non-zero claude exit code as verus-failed.** A rate-limited response, a budget cap firing, a network blip all produced the same exit code. The first `quorum_count` run burned 27 rate-limited iterations before its outer ceiling fired. The orchestrator now classifies failures by grepping the iteration log against known signatures.
 
 **The original implementer whitelist allowed witness reads.** The `vec_swap` invention test made this concrete: the agent's iter-1 commit was titled "port witness proof", and its own playbook entry recorded the gap honestly. The fix is the operator-territory boundary described above; the `vec_swap` / `vec_swap_v2` rows stay INVALIDATED as evidence.
 
@@ -246,11 +237,5 @@ After the Microsoft work in particular, the claim worth defending is narrower th
 
 A second contribution worth naming: the operator-intervention cases on `bounded_log` and `marzullo`. Most published vericoding results either succeed silently or fail silently. The loop's behaviour on both — the agent refused to cheat, articulated the constraint, named the empowered role, and stopped — is the kind of structured-failure output a trustworthy methodology should produce. The pre-spec witness check has since removed that class of operator-time mistakes.
 
-Two next experiments. A verified Byzantine agreement primitive plus hardware-deployed sensor-fusion under live fault injection (deferred; see [`BACKLOG.md`](https://github.com/ranjithkannank/verus-calibration/blob/main/BACKLOG.md)). And five to ten more VeruSAGE-Bench tasks at larger sizes with neutral design notes. Negative results from that run are more informative than positive ones; they tell us where the methodology stops travelling.
+Two next experiments. A verified Byzantine agreement primitive plus hardware-deployed sensor-fusion under live fault injection (deferred). And five to ten more VeruSAGE-Bench tasks at larger sizes with neutral design notes. Negative results from that run are more informative than positive ones; they tell us where the methodology stops travelling.
 
-## Reproducing
-
-- Repo: <https://github.com/ranjithkannank/verus-calibration>
-- Verus: `0.2026.05.13.fae8859`, arm64-macos binary release.
-- Models: `claude-opus-4-7` for all three roles (implementer originally Sonnet 4.6, switched to Opus for the BFT-path exercises). Choices live in `ralph/run-exercise.sh`.
-- All prompts are inlined in `ralph/run-exercise.sh`. Raw verifier output is in `logs/<ex>/raw/`. `AGENTS.md` is the rule book; the pre-commit hook in `scripts/git-hooks/pre-commit` is the enforcement; the witness-deny patterns are in the `DISALLOWED_TOOLS` array, and `scripts/probe-witness-deny.sh` verifies them.
